@@ -546,199 +546,215 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
 End Sub
 
 '-------------------------------------------------------------
+' Вспомогательная: возвращает Δt в минутах между строками r1 и r2
+'-------------------------------------------------------------
+Function CalcDeltaT(ws As Worksheet, r1 As Long, r2 As Long) As Double
+    CalcDeltaT = 0
+    ' Источник 1: столбец C (миллисекунды суток)
+    Dim ms1v As Variant, ms2v As Variant
+    ms1v = ws.Cells(r1, 3).Value
+    ms2v = ws.Cells(r2, 3).Value
+    If IsNumeric(ms1v) And IsNumeric(ms2v) Then
+        Dim diffSec As Double
+        diffSec = (CDbl(ms2v) - CDbl(ms1v)) / 1000#
+        If diffSec < 0 Then  ' переход суток
+            Dim da1 As Variant, da2 As Variant
+            da1 = ws.Cells(r1, 1).Value : da2 = ws.Cells(r2, 1).Value
+            If IsNumeric(da1) And IsNumeric(da2) Then
+                diffSec = diffSec + (CLng(CDbl(da2)) - CLng(CDbl(da1))) * 86400#
+            Else
+                diffSec = diffSec + 86400#
+            End If
+        End If
+        If diffSec >= 0.5 And diffSec <= 1800 Then
+            CalcDeltaT = diffSec / 60#
+            Exit Function
+        End If
+    End If
+    ' Источник 2: столбцы A+B (дата + время как числа Excel)
+    Dim d1v As Variant, t1v As Variant, d2v As Variant, t2v As Variant
+    d1v = ws.Cells(r1, 1).Value : t1v = ws.Cells(r1, 2).Value
+    d2v = ws.Cells(r2, 1).Value : t2v = ws.Cells(r2, 2).Value
+    If IsNumeric(d1v) And IsNumeric(t1v) And IsNumeric(d2v) And IsNumeric(t2v) Then
+        Dim dtMin As Double
+        dtMin = ((CDbl(d2v) + CDbl(t2v)) - (CDbl(d1v) + CDbl(t1v))) * 1440#
+        If dtMin < 0 Then dtMin = dtMin + 1440#  ' переход суток
+        If dtMin >= 0.008 And dtMin <= 30 Then
+            CalcDeltaT = dtMin
+            Exit Function
+        End If
+    End If
+    ' Источник 3: время как строка HH:MM:SS
+    If IsNumeric(d1v) And IsNumeric(d2v) Then
+        Dim ts1 As String, ts2 As String
+        ts1 = Trim(CStr(t1v)) : ts2 = Trim(CStr(t2v))
+        If InStr(ts1, ":") > 0 And InStr(ts2, ":") > 0 Then
+            On Error Resume Next
+            Dim tv1 As Double, tv2 As Double
+            tv1 = CDbl(TimeValue(ts1)) : tv2 = CDbl(TimeValue(ts2))
+            If Err.Number = 0 Then
+                Dim tdiff As Double
+                tdiff = (tv2 - tv1)
+                If tdiff < 0 Then tdiff = tdiff + (CLng(CDbl(d2v)) - CLng(CDbl(d1v))) + 1
+                tdiff = tdiff * 1440#
+                If tdiff >= 0.008 And tdiff <= 30 Then CalcDeltaT = tdiff
+            End If
+            On Error GoTo 0
+        End If
+    End If
+End Function
+
+'-------------------------------------------------------------
 ' Определение циклов стерилизации и расчёт F0
+' Алгоритм ДВУХПРОХОДНЫЙ:
+'   Проход 1: определяем границы циклов и MAX(столбец K) → Tref
+'   Проход 2: считаем F0 = Σ 10^((T-Tref)/z) * Δt  (прямая формула Бигелоу)
 '-------------------------------------------------------------
 Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastRow As Long)
-    Dim i As Long
-    Dim cycleNum As Integer
-    Dim inCycle As Boolean
-    Dim cycleStart As Long
-    Dim reportRow As Integer
-    Dim tempProd As Double
-    Dim f0Cycle As Double
-    Dim tMax As Double, tMin As Double
-    Dim cycleStartTime As Variant
-    Dim cycleEndTime As Variant
-    Dim durationMin As Double
-    Dim peakReached As Boolean
+    Const COL_DATE As Integer = 1
+    Const COL_TIME As Integer = 2
+    Const COL_TEMP_PROD As Integer = 5
+    Const COL_TREF As Integer = 11
+    Const COL_F0 As Integer = 18
 
-    Const COL_DATE As Integer = 1       ' Столбец A — Дата
-    Const COL_TIME As Integer = 2       ' Столбец B — Время
-    Const COL_TEMP_PROD As Integer = 5  ' Столбец E — Температура продукта
-    Const COL_TREF As Integer = 11      ' Столбец K — Заданная температура (Tref цикла)
-    Const COL_F0 As Integer = 18        ' Столбец R — накопленный F0
+    ' ================================================================
+    ' ПРОХОД 1: находим границы всех циклов и MAX(K) для каждого
+    ' ================================================================
+    Dim cycleCount As Integer
+    cycleCount = 0
+    ReDim cycleStarts(1 To 500) As Long
+    ReDim cycleEnds_(1 To 500) As Long
+    ReDim cycleTref(1 To 500) As Double
 
-    Dim tRefCycle As Double             ' Tref итогового цикла (MAX из столбца K)
-    tRefCycle = T_REF                   ' по умолчанию 121.1C
+    Dim inCyc As Boolean
+    Dim cyStart As Long
+    Dim tKmaxP1 As Double
+    Dim peakP1 As Boolean
+    Dim tMaxP1 As Double
+    inCyc = False : tKmaxP1 = 0 : peakP1 = False : tMaxP1 = -999
 
-    ' Для накопления F0 используем разложение Бигелоу:
-    '   F0 = 10^(-Tref/z) * Σ [10^(T/z) * Δt]
-    ' Накапливаем сумму Σ [10^(T/z) * Δt] отдельно,
-    ' а Tref применяем в конце цикла когда знаем MAX столбца K
-    Dim f0RawSum As Double              ' Σ 10^(T/z) * Δt  (без деления на Tref)
-    Dim tKmax As Double                 ' MAX заданной температуры за цикл (столбец K)
+    Dim p As Long
+    For p = 2 To lastRow
+        Dim rv As Variant
+        rv = wsData.Cells(p, COL_TEMP_PROD).Value
+        If Not IsNumeric(rv) Then GoTo P1Next
+        Dim tp As Double
+        tp = CDbl(rv)
 
-    cycleNum = 0
-    inCycle = False
-    reportRow = 6
-    peakReached = False
-    tMax = -999
-    tMin = 999
-    f0Cycle = 0
-    f0RawSum = 0
-    tKmax = 0
-    cycleStart = 2
-
-    For i = 2 To lastRow
-        Dim rawVal As Variant
-        rawVal = wsData.Cells(i, COL_TEMP_PROD).Value
-        If Not IsNumeric(rawVal) Or rawVal = "" Then GoTo NextRow
-        tempProd = CDbl(rawVal)
-
-        If Not inCycle Then
-            ' Начало цикла: температура поднимается выше T_START
-            ' Не требуем подтверждения роста — достаточно превышения порога
-            If tempProd >= T_START Then
-                inCycle = True
-                cycleStart = i
-                f0Cycle = 0
-                f0RawSum = 0
-                tKmax = 0        ' будем накапливать MAX из столбца K
-                tMax = tempProd
-                tMin = 999       ' обновляется только в зоне >= T_MIN_STERIL
-                peakReached = False
-
-                ' Сохраняем дату+время начала цикла
-                Dim dv As Variant, tv As Variant
-                dv = wsData.Cells(i, COL_DATE).Value
-                tv = wsData.Cells(i, COL_TIME).Value
-                If IsNumeric(dv) And IsNumeric(tv) Then
-                    cycleStartTime = CDbl(dv) + CDbl(tv)
-                Else
-                    cycleStartTime = 0
-                End If
+        If Not inCyc Then
+            If tp >= T_START Then
+                inCyc = True : cyStart = p
+                tKmaxP1 = 0 : peakP1 = False : tMaxP1 = tp
             End If
         Else
-            If tempProd > tMax Then tMax = tempProd
-            ' tMin считается ТОЛЬКО в зоне стерилизации — см. ниже внутри If tempProd >= T_MIN_STERIL
-            If tMax >= T_MIN_STERIL Then peakReached = True
-
-            ' Накапливаем MAX заданной температуры из столбца K за цикл
-            Dim tKrawUpd As Variant
-            tKrawUpd = wsData.Cells(i, COL_TREF).Value
-            If IsNumeric(tKrawUpd) Then
-                Dim tKval As Double
-                tKval = CDbl(tKrawUpd)
-                If tKval >= 100# And tKval <= 130# Then
-                    If tKval > tKmax Then tKmax = tKval
-                End If
+            If tp > tMaxP1 Then tMaxP1 = tp
+            If tMaxP1 >= T_MIN_STERIL Then peakP1 = True
+            ' Накапливаем MAX заданной температуры
+            Dim tkRv As Variant
+            tkRv = wsData.Cells(p, COL_TREF).Value
+            If IsNumeric(tkRv) Then
+                Dim tkV As Double : tkV = CDbl(tkRv)
+                If tkV >= 100# And tkV <= 130# And tkV > tKmaxP1 Then tKmaxP1 = tkV
             End If
-
-            If tempProd >= T_MIN_STERIL Then
-                ' Минимальная температура ТОЛЬКО в зоне стерилизации
-                If tMin = 999 Or tempProd < tMin Then tMin = tempProd
-
-                ' Накапливаем "сырую" сумму: 10^(T/z) * Δt
-                ' Tref применим в конце цикла через: F0 = rawSum * 10^(-Tref/z)
-                Dim lethalityRaw As Double
-                lethalityRaw = 10 ^ (tempProd / Z_FACTOR)
-
-                ' --------------------------------------------------
-                ' Вычисляем Δt в секундах, затем переводим в минуты
-                ' Единственный надёжный источник — столбец C (миллисекунды записи).
-                ' Это АБСОЛЮТНЫЕ миллисекунды от начала суток (0..86400000).
-                ' Дата из столбца A добавляет смещение при переходе суток.
-                ' --------------------------------------------------
-                Dim deltaT As Double
-                deltaT = 0
-
-                If i > cycleStart Then
-                    Dim ms1 As Variant, ms2 As Variant
-                    ms1 = wsData.Cells(i - 1, 3).Value  ' столбец C предыд. строки
-                    ms2 = wsData.Cells(i, 3).Value       ' столбец C текущей строки
-
-                    If IsNumeric(ms1) And IsNumeric(ms2) Then
-                        Dim msV1 As Double, msV2 As Double
-                        msV1 = CDbl(ms1)
-                        msV2 = CDbl(ms2)
-
-                        Dim msDiffSec As Double
-                        msDiffSec = (msV2 - msV1) / 1000#  ' → секунды
-
-                        ' Переход суток: msV2 < msV1 → добавляем 86400 секунд
-                        If msDiffSec < 0 Then
-                            ' Проверяем по дате (столбец A)
-                            Dim dA1 As Variant, dA2 As Variant
-                            dA1 = wsData.Cells(i - 1, COL_DATE).Value
-                            dA2 = wsData.Cells(i, COL_DATE).Value
-                            If IsNumeric(dA1) And IsNumeric(dA2) Then
-                                Dim dayDiff As Long
-                                dayDiff = CLng(CDbl(dA2)) - CLng(CDbl(dA1))
-                                msDiffSec = msDiffSec + dayDiff * 86400#
-                            Else
-                                msDiffSec = msDiffSec + 86400#  ' предполагаем +1 сутки
-                            End If
-                        End If
-
-                        ' Разумный диапазон: от 1 секунды до 30 минут
-                        If msDiffSec >= 1# And msDiffSec <= 1800# Then
-                            deltaT = msDiffSec / 60#  ' → минуты
-                        End If
-                    End If
-
-                    ' Резерв: если столбец C не помог — берём дату+время (A+B числа Excel)
-                    If deltaT = 0 Then
-                        Dim d1 As Variant, d2 As Variant
-                        Dim t1v As Variant, t2v As Variant
-                        d1  = wsData.Cells(i - 1, COL_DATE).Value
-                        t1v = wsData.Cells(i - 1, COL_TIME).Value
-                        d2  = wsData.Cells(i, COL_DATE).Value
-                        t2v = wsData.Cells(i, COL_TIME).Value
-
-                        If IsNumeric(d1) And IsNumeric(t1v) And IsNumeric(d2) And IsNumeric(t2v) Then
-                            Dim dtFull As Double
-                            dtFull = ((CDbl(d2) + CDbl(t2v)) - (CDbl(d1) + CDbl(t1v))) * 24# * 60#
-                            If dtFull > 0.01# And dtFull < 30# Then deltaT = dtFull
-                        End If
+            ' Конец цикла
+            Dim cycEnd1 As Boolean
+            cycEnd1 = (peakP1 And tp < T_START) Or (p = lastRow)
+            If cycEnd1 Then
+                If cycleCount < 500 Then
+                    cycleCount = cycleCount + 1
+                    cycleStarts(cycleCount) = cyStart
+                    cycleEnds_(cycleCount) = p
+                    ' Определяем Tref: к стандартной программе
+                    If tKmaxP1 >= 118# Then
+                        cycleTref(cycleCount) = 120#
+                    ElseIf tKmaxP1 >= 100# Then
+                        cycleTref(cycleCount) = 115#
+                    Else
+                        cycleTref(cycleCount) = 121.1
                     End If
                 End If
-
-                ' Накапливаем сырую сумму (Tref пока не знаем — MAX будет в конце цикла)
-                If deltaT > 0 Then
-                    f0RawSum = f0RawSum + lethalityRaw * deltaT
-                End If
-                ' Промежуточный F0 в столбце R — предварительный с текущим Tref
-                Dim trefInterim As Double
-                trefInterim = IIf(tKmax >= 100, tKmax, T_REF)
-                f0Cycle = f0RawSum * (10 ^ (-(trefInterim) / Z_FACTOR))
+                inCyc = False : tKmaxP1 = 0 : peakP1 = False : tMaxP1 = -999
             End If
+        End If
+P1Next:
+    Next p
 
-            ' Пишем накопленный F0 в столбец R (18)
-            wsData.Cells(i, COL_F0).Value = Round(f0Cycle, 4)
+    ' ================================================================
+    ' ПРОХОД 2: считаем F0 по каждому циклу с правильным Tref
+    ' Формула Бигелоу: F0 = Σ 10^((T - Tref) / z) * Δt
+    ' ================================================================
+    Dim reportRow As Integer
+    reportRow = 6
 
-            Dim cycleEnds As Boolean
-            cycleEnds = False
-            If peakReached And tempProd < T_START Then cycleEnds = True
-            If i = lastRow Then cycleEnds = True
+    Dim ci As Integer
+    For ci = 1 To cycleCount
+        Dim rStart As Long, rEnd As Long, tRefC As Double
+        rStart = cycleStarts(ci)
+        rEnd   = cycleEnds_(ci)
+        tRefC  = cycleTref(ci)
 
-            If cycleEnds Then
-                cycleNum = cycleNum + 1
+        Dim f0C As Double, tMaxC As Double, tMinC As Double
+        Dim peakC As Boolean
+        f0C = 0 : tMaxC = -999 : tMinC = 999 : peakC = False
 
-                ' --------------------------------------------------
-                ' Финальный Tref = MAX из столбца K за цикл
-                ' Округляем к ближайшей стандартной программе: 115 или 120
-                ' --------------------------------------------------
-                If tKmax >= 118# Then
-                    tRefCycle = 120#   ' программа 120°C
-                ElseIf tKmax >= 100# Then
-                    tRefCycle = 115#   ' программа 115°C
-                Else
-                    tRefCycle = 121.1  ' не определено — стандарт ВОЗ
+        Dim ri As Long
+        For ri = rStart To rEnd
+            Dim tpC As Variant
+            tpC = wsData.Cells(ri, COL_TEMP_PROD).Value
+            If Not IsNumeric(tpC) Then GoTo P2Next
+            Dim tC As Double : tC = CDbl(tpC)
+
+            If tC > tMaxC Then tMaxC = tC
+            If tC >= T_MIN_STERIL Then
+                peakC = True
+                If tC < tMinC Then tMinC = tC
+
+                ' Δt в минутах
+                Dim dtC As Double : dtC = 0
+                If ri > rStart Then dtC = CalcDeltaT(wsData, ri - 1, ri)
+
+                If dtC > 0 Then
+                    ' Прямая формула Бигелоу — без разложения, без переполнения
+                    f0C = f0C + (10# ^ ((tC - tRefC) / Z_FACTOR)) * dtC
                 End If
+            End If
+            ' Записываем накопленный F0 в столбец R
+            wsData.Cells(ri, COL_F0).Value = Round(f0C, 4)
+P2Next:
+        Next ri
 
-                ' Финальный пересчёт F0 с правильным Tref по методу Бигелоу:
-                ' F0 = Σ [10^(T/z) * Δt] * 10^(-Tref/z)
-                f0Cycle = f0RawSum * (10# ^ (-(tRefCycle) / Z_FACTOR))
+        ' Результат для отчёта
+        Dim cycleNum As Integer : cycleNum = ci
+        Dim durationMin As Double
+        durationMin = GetDateTimeAsDouble(wsData, rStart)
+        Dim dtEnd2 As Double
+        dtEnd2 = GetDateTimeAsDouble(wsData, rEnd)
+        If dtEnd2 > durationMin Then
+            durationMin = (dtEnd2 - durationMin) * 1440#
+        Else
+            durationMin = 0
+        End If
+
+        Dim tMin As Double, tMax As Double
+        tMax = tMaxC
+        tMin = IIf(tMinC < 999, tMinC, 0)
+
+        Dim f0Cycle As Double : f0Cycle = f0C
+        Dim tRefCycle As Double : tRefCycle = tRefC
+
+        Dim result As String, resultColor As Long, noteText As String
+
+        Dim f0Norm As Double
+        If tRefCycle >= 121 Then
+            f0Norm = 6
+        ElseIf tRefCycle >= 119 Then
+            f0Norm = 8
+        Else
+            f0Norm = 15
+        End If
+
+        Dim trefStr As String
+        trefStr = "Tref=" & Format(tRefCycle, "0") & "C"
 
                 Dim result As String
                 Dim resultColor As Long
@@ -760,84 +776,57 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 Dim trefStr As String
                 trefStr = "Tref=" & Format(tRefCycle, "0") & "C"
 
-                If Not peakReached Then
-                    result = "— Без стерилизации"
-                    resultColor = RGB(100, 120, 140)
-                    noteText = "Пик T < 100C — только прогрев"
-                ElseIf f0Cycle >= f0Norm Then
-                    result = "OK НОРМА (F0 >= " & f0Norm & ")"
-                    resultColor = RGB(0, 160, 80)
-                    noteText = trefStr
-                ElseIf f0Cycle >= f0Norm / 2 Then
-                    result = "! ПРЕДЕЛ (F0 >= " & f0Norm / 2 & ")"
-                    resultColor = RGB(220, 140, 0)
-                    noteText = trefStr
-                Else
-                    result = "X НЕДОСТАТОЧНО (F0 < " & f0Norm / 2 & ")"
-                    resultColor = RGB(200, 40, 40)
-                    noteText = trefStr
-                End If
-
-                ' Формируем строки даты/времени из исходных ячеек Data
-                Dim startDateStr As String, endDateStr As String
-
-                startDateStr = FormatDateTime_FromRow(wsData, cycleStart)
-                endDateStr   = FormatDateTime_FromRow(wsData, i)
-
-                ' Длительность в минутах — через дату+время (столбцы A + B)
-                durationMin = 0
-                Dim dtStart As Double, dtEnd As Double
-                dtStart = GetDateTimeAsDouble(wsData, cycleStart)
-                dtEnd   = GetDateTimeAsDouble(wsData, i)
-                If dtEnd > dtStart Then
-                    durationMin = (dtEnd - dtStart) * 24# * 60#
-                End If
-
-                With wsReport
-                    .Cells(reportRow, 1).Value = cycleNum
-                    .Cells(reportRow, 2).Value = startDateStr
-                    .Cells(reportRow, 3).Value = endDateStr
-                    .Cells(reportRow, 4).Value = Round(durationMin, 1)
-                    .Cells(reportRow, 5).Value = Round(tMax, 2)
-                    ' tMin = 999 означает зоны стерилизации не было
-                    If tMin < 999 Then
-                        .Cells(reportRow, 6).Value = Round(tMin, 2)
-                    Else
-                        .Cells(reportRow, 6).Value = "—"
-                    End If
-                    .Cells(reportRow, 7).Value = Round(f0Cycle, 4)
-                    .Cells(reportRow, 8).Value = result
-                    .Cells(reportRow, 9).Value = i - cycleStart + 1
-                    .Cells(reportRow, 10).Value = noteText
-
-                    .Cells(reportRow, 7).NumberFormat = "0.0000"
-                    .Cells(reportRow, 8).Font.Color = resultColor
-                    .Cells(reportRow, 8).Font.Bold = True
-
-                    ' Чередование строк — светлый стиль
-                    If cycleNum Mod 2 = 0 Then
-                        .Rows(reportRow).Interior.Color = RGB(240, 246, 252)
-                    Else
-                        .Rows(reportRow).Interior.Color = RGB(255, 255, 255)
-                    End If
-                    .Rows(reportRow).Font.Color = RGB(30, 30, 30)
-                    .Cells(reportRow, 8).Font.Color = resultColor
-                End With
-
-                reportRow = reportRow + 1
-                inCycle = False
-                peakReached = False
-                tMax = -999
-                tMin = 999
-                f0Cycle = 0
-                f0RawSum = 0
-                tKmax = 0
-            End If
+        If Not peakC Then
+            result = "— Без стерилизации"
+            resultColor = RGB(100, 120, 140)
+            noteText = "Пик T < 100C — только прогрев"
+        ElseIf f0Cycle >= f0Norm Then
+            result = "OK НОРМА (F0 >= " & f0Norm & ")"
+            resultColor = RGB(0, 160, 80)
+            noteText = trefStr
+        ElseIf f0Cycle >= f0Norm / 2 Then
+            result = "! ПРЕДЕЛ (F0 >= " & f0Norm / 2 & ")"
+            resultColor = RGB(220, 140, 0)
+            noteText = trefStr
+        Else
+            result = "X НЕДОСТАТОЧНО (F0 < " & f0Norm / 2 & ")"
+            resultColor = RGB(200, 40, 40)
+            noteText = trefStr
         End If
-NextRow:
-    Next i
 
-    Call AddSummaryRow(wsReport, reportRow, cycleNum)
+        Dim startDateStr As String, endDateStr As String
+        startDateStr = FormatDateTime_FromRow(wsData, rStart)
+        endDateStr   = FormatDateTime_FromRow(wsData, rEnd)
+
+        With wsReport
+            .Cells(reportRow, 1).Value = ci
+            .Cells(reportRow, 2).Value = startDateStr
+            .Cells(reportRow, 3).Value = endDateStr
+            .Cells(reportRow, 4).Value = Round(durationMin, 1)
+            .Cells(reportRow, 5).Value = Round(tMax, 2)
+            .Cells(reportRow, 6).Value = IIf(tMin < 999, Round(tMin, 2), "—")
+            .Cells(reportRow, 7).Value = Round(f0Cycle, 4)
+            .Cells(reportRow, 8).Value = result
+            .Cells(reportRow, 9).Value = rEnd - rStart + 1
+            .Cells(reportRow, 10).Value = noteText
+
+            .Cells(reportRow, 7).NumberFormat = "0.0000"
+            .Cells(reportRow, 8).Font.Color = resultColor
+            .Cells(reportRow, 8).Font.Bold = True
+
+            If ci Mod 2 = 0 Then
+                .Rows(reportRow).Interior.Color = RGB(240, 246, 252)
+            Else
+                .Rows(reportRow).Interior.Color = RGB(255, 255, 255)
+            End If
+            .Rows(reportRow).Font.Color = RGB(30, 30, 30)
+            .Cells(reportRow, 8).Font.Color = resultColor
+        End With
+
+        reportRow = reportRow + 1
+    Next ci
+
+    Call AddSummaryRow(wsReport, reportRow, cycleCount)
 End Sub
 
 '-------------------------------------------------------------
@@ -901,89 +890,110 @@ End Sub
 '-------------------------------------------------------------
 ' График температуры и F0
 '-------------------------------------------------------------
-Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, csvFileName As String)
-    Dim ws As Worksheet
+'-------------------------------------------------------------
+' Строит один график для одного цикла (строки rStart..rEnd)
+'-------------------------------------------------------------
+Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
+    rStart As Long, rEnd As Long, cycleIdx As Integer, _
+    tRefC As Double, topOffset As Long)
 
-    Application.DisplayAlerts = False
-    For Each ws In wb.Sheets
-        If ws.Name = "График" Then ws.Delete
-    Next ws
-    Application.DisplayAlerts = True
-
-    Set ws = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
-    ws.Name = "График"
+    Const CHART_W As Long = 900
+    Const CHART_H As Long = 380
+    Const CHART_GAP As Long = 20
 
     Dim co As ChartObject
-    Set co = ws.ChartObjects.Add(Left:=10, Top:=10, Width:=900, Height:=480)
+    Set co = ws.ChartObjects.Add( _
+        Left:=10, Top:=topOffset, Width:=CHART_W, Height:=CHART_H)
 
     Dim cht As Chart
     Set cht = co.Chart
-
-    ' Столбцы: D(4)=темп.среды, E(5)=темп.продукта, R(18)=F0
-    Dim rngTempEnv As Range   ' температура среды (жёлтая)
-    Dim rngTempProd As Range  ' температура продукта (бирюзовая)
-    Dim rngF0 As Range
-    Set rngTempEnv  = wsData.Range(wsData.Cells(2, 4), wsData.Cells(lastRow, 4))
-    Set rngTempProd = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5))
-    Set rngF0       = wsData.Range(wsData.Cells(2, 18), wsData.Cells(lastRow, 18))
-
     cht.ChartType = xlLine
     Do While cht.SeriesCollection.Count > 0
         cht.SeriesCollection(1).Delete
     Loop
 
-    ' --- Линия 1: Температура продукта — бирюзовая (как на оригинале) ---
+    Dim nRows As Long : nRows = rEnd - rStart + 1
+
+    ' --- Метки времени на оси X (формат HH:MM) ---
+    Dim timeLabels() As String
+    ReDim timeLabels(1 To nRows)
+    Dim ri As Long
+    For ri = 1 To nRows
+        timeLabels(ri) = FormatDateTime_FromRow(wsData, rStart + ri - 1)
+        ' Оставляем только время HH:MM
+        Dim fullLabel As String : fullLabel = timeLabels(ri)
+        Dim spPos As Integer : spPos = InStr(fullLabel, " ")
+        If spPos > 0 Then
+            Dim timePart2 As String : timePart2 = Mid(fullLabel, spPos + 1)
+            ' Обрезаем до HH:MM (убираем секунды)
+            Dim colPos As Integer : colPos = InStr(timePart2, ":")
+            If colPos > 0 Then
+                colPos = InStr(colPos + 1, timePart2, ":")
+                If colPos > 0 Then timePart2 = Left(timePart2, colPos - 1)
+            End If
+            timeLabels(ri) = timePart2
+        End If
+    Next ri
+
+    ' --- Данные серий ---
+    Dim arrEnv() As Double, arrProd() As Double, arrF0() As Double, arrTref() As Double
+    ReDim arrEnv(1 To nRows)
+    ReDim arrProd(1 To nRows)
+    ReDim arrF0(1 To nRows)
+    ReDim arrTref(1 To nRows)
+
+    For ri = 1 To nRows
+        Dim rowIdx As Long : rowIdx = rStart + ri - 1
+        Dim vEnv As Variant, vProd As Variant, vF0 As Variant
+        vEnv  = wsData.Cells(rowIdx, 4).Value   ' D — темп.среды
+        vProd = wsData.Cells(rowIdx, 5).Value   ' E — темп.продукта
+        vF0   = wsData.Cells(rowIdx, 18).Value  ' R — F0
+        arrEnv(ri)  = IIf(IsNumeric(vEnv), CDbl(vEnv), 0)
+        arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
+        arrF0(ri)   = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        arrTref(ri) = tRefC
+    Next ri
+
+    ' --- Серия 1: T° продукта — бирюзовая ---
     Dim s1 As Series
     Set s1 = cht.SeriesCollection.NewSeries
     s1.Name = "T° продукта"
-    s1.Values = rngTempProd
-    s1.Format.Line.ForeColor.RGB = RGB(0, 210, 200)   ' бирюзовый
+    s1.Values = arrProd
+    s1.XValues = timeLabels
+    s1.Format.Line.ForeColor.RGB = RGB(0, 210, 200)
     s1.Format.Line.Weight = 2.5
     s1.MarkerStyle = xlMarkerStyleNone
     s1.AxisGroup = xlPrimary
 
-    ' --- Линия 2: Температура среды (автоклав) — жёлтая ---
+    ' --- Серия 2: Температура среды — жёлтая ---
     Dim s2 As Series
     Set s2 = cht.SeriesCollection.NewSeries
     s2.Name = "Температура"
-    s2.Values = rngTempEnv
-    s2.Format.Line.ForeColor.RGB = RGB(255, 220, 0)   ' жёлтый
+    s2.Values = arrEnv
+    s2.XValues = timeLabels
+    s2.Format.Line.ForeColor.RGB = RGB(220, 190, 0)
     s2.Format.Line.Weight = 2
     s2.MarkerStyle = xlMarkerStyleNone
     s2.AxisGroup = xlPrimary
 
-    ' --- Линия 3: F0 накопленный — оранжевая, вторая ось ---
+    ' --- Серия 3: F0 накопленный — оранжевая, вторая ось ---
     Dim s3 As Series
     Set s3 = cht.SeriesCollection.NewSeries
-    s3.Name = "F0 накопл. (мин)"
-    s3.Values = rngF0
-    s3.Format.Line.ForeColor.RGB = RGB(255, 120, 0)
+    s3.Name = "F0 накопл."
+    s3.Values = arrF0
+    s3.XValues = timeLabels
+    s3.Format.Line.ForeColor.RGB = RGB(255, 100, 0)
     s3.Format.Line.Weight = 2
     s3.MarkerStyle = xlMarkerStyleNone
     s3.AxisGroup = xlSecondary
 
-    ' --- Линия 4: Tref — красная пунктирная ---
-    Dim tRefChart As Double
-    tRefChart = T_REF
-    Dim trefChkRaw As Variant
-    trefChkRaw = wsData.Cells(2, 11).Value
-    If IsNumeric(trefChkRaw) Then
-        Dim trcV As Double
-        trcV = CDbl(trefChkRaw)
-        If trcV >= 100# And trcV <= 130# Then tRefChart = trcV
-    End If
-
+    ' --- Серия 4: Tref — красная пунктирная ---
     Dim s4 As Series
     Set s4 = cht.SeriesCollection.NewSeries
-    s4.Name = "Tref=" & Format(tRefChart, "0") & "C"
-    Dim trefArr() As Double
-    ReDim trefArr(1 To lastRow - 1)
-    Dim j As Long
-    For j = 1 To lastRow - 1
-        trefArr(j) = tRefChart
-    Next j
-    s4.Values = trefArr
-    s4.Format.Line.ForeColor.RGB = RGB(255, 80, 80)
+    s4.Name = "Tref=" & Format(tRefC, "0") & "C"
+    s4.Values = arrTref
+    s4.XValues = timeLabels
+    s4.Format.Line.ForeColor.RGB = RGB(220, 50, 50)
     s4.Format.Line.DashStyle = msoLineDash
     s4.Format.Line.Weight = 1.5
     s4.MarkerStyle = xlMarkerStyleNone
@@ -991,19 +1001,18 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
     With cht
         .HasTitle = True
-        .ChartTitle.Text = "График температуры продукта и температуры автоклава"
-        .ChartTitle.Font.Size = 13
+        .ChartTitle.Text = "Цикл " & cycleIdx & "  |  Tref = " & Format(tRefC, "0") & "°C"
+        .ChartTitle.Font.Size = 11
         .ChartTitle.Font.Bold = True
-        .ChartTitle.Font.Color = RGB(30, 30, 30)
+        .ChartTitle.Font.Color = RGB(20, 20, 20)
 
-        ' Белый фон
         .PlotArea.Interior.Color = RGB(255, 255, 255)
         .PlotArea.Border.LineStyle = xlContinuous
-        .PlotArea.Border.Color = RGB(180, 195, 210)
-        .ChartArea.Interior.Color = RGB(255, 255, 255)
-        .ChartArea.Border.Color = RGB(180, 195, 210)
-        .ChartTitle.Font.Color = RGB(30, 30, 30)
+        .PlotArea.Border.Color = RGB(180, 200, 220)
+        .ChartArea.Interior.Color = RGB(250, 252, 255)
+        .ChartArea.Border.Color = RGB(180, 200, 220)
 
+        ' Ось Y (температура)
         With .Axes(xlValue, xlPrimary)
             .HasTitle = False
             .MinimumScale = 0
@@ -1015,10 +1024,24 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
             .TickLabels.Font.Size = 9
         End With
 
+        ' Ось F0 (вторичная)
         With .Axes(xlValue, xlSecondary)
             .HasTitle = False
-            .TickLabels.Font.Color = RGB(200, 100, 0)
+            .TickLabels.Font.Color = RGB(200, 90, 0)
             .TickLabels.Font.Size = 8
+        End With
+
+        ' Ось X — время HH:MM
+        With .Axes(xlCategory)
+            .HasTitle = False
+            .TickLabels.Font.Size = 8
+            .TickLabels.Font.Color = RGB(50, 50, 50)
+            ' Показываем каждую N-ю метку чтобы не перекрывались
+            Dim tickStep As Long
+            tickStep = IIf(nRows > 300, CLng(nRows / 30), IIf(nRows > 60, CLng(nRows / 15), 1))
+            If tickStep < 1 Then tickStep = 1
+            .TickLabelSpacing = tickStep
+            .TickMarkSpacing = tickStep
         End With
 
         .HasLegend = True
@@ -1027,6 +1050,82 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
         .Legend.Font.Size = 9
         .Legend.Position = xlLegendPositionTop
     End With
+End Sub
+
+'-------------------------------------------------------------
+' Строит графики по всем циклам на листе График
+'-------------------------------------------------------------
+Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, csvFileName As String)
+    Dim ws As Worksheet
+
+    Application.DisplayAlerts = False
+    For Each ws In wb.Sheets
+        If ws.Name = "График" Then ws.Delete
+    Next ws
+    Application.DisplayAlerts = True
+
+    Set ws = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+    ws.Name = "График"
+    ws.Cells.Interior.Color = RGB(245, 248, 252)
+
+    ' Заголовок листа
+    ws.Cells(1, 1).Value = "Графики температуры и F0 — " & csvFileName
+    ws.Cells(1, 1).Font.Size = 12
+    ws.Cells(1, 1).Font.Bold = True
+    ws.Cells(1, 1).Font.Color = RGB(0, 80, 160)
+
+    ' Сканируем Data — находим циклы (та же логика, что в Проходе 1)
+    Dim inCyc As Boolean : inCyc = False
+    Dim cyStart As Long, cyEnd As Long
+    Dim peakCy As Boolean : peakCy = False
+    Dim tMaxCy As Double : tMaxCy = -999
+    Dim tKmaxCy As Double : tKmaxCy = 0
+    Dim cycIdx As Integer : cycIdx = 0
+    Dim topOffset As Long : topOffset = 30
+
+    Dim p As Long
+    For p = 2 To lastRow
+        Dim rv2 As Variant
+        rv2 = wsData.Cells(p, 5).Value
+        If Not IsNumeric(rv2) Then GoTo ChartNext
+        Dim tp2 As Double : tp2 = CDbl(rv2)
+
+        If Not inCyc Then
+            If tp2 >= T_START Then
+                inCyc = True : cyStart = p
+                tMaxCy = tp2 : peakCy = False : tKmaxCy = 0
+            End If
+        Else
+            If tp2 > tMaxCy Then tMaxCy = tp2
+            If tMaxCy >= T_MIN_STERIL Then peakCy = True
+            Dim tkR2 As Variant : tkR2 = wsData.Cells(p, 11).Value
+            If IsNumeric(tkR2) Then
+                Dim tkV2 As Double : tkV2 = CDbl(tkR2)
+                If tkV2 >= 100# And tkV2 <= 130# And tkV2 > tKmaxCy Then tKmaxCy = tkV2
+            End If
+            Dim cycEnd2 As Boolean
+            cycEnd2 = (peakCy And tp2 < T_START) Or (p = lastRow)
+            If cycEnd2 Then
+                cyEnd = p
+                ' Определяем Tref цикла
+                Dim tRefCy As Double
+                If tKmaxCy >= 118# Then
+                    tRefCy = 120#
+                ElseIf tKmaxCy >= 100# Then
+                    tRefCy = 115#
+                Else
+                    tRefCy = 121.1
+                End If
+
+                cycIdx = cycIdx + 1
+                Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
+                topOffset = topOffset + 400  ' следующий график ниже
+
+                inCyc = False : tMaxCy = -999 : peakCy = False : tKmaxCy = 0
+            End If
+        End If
+ChartNext:
+    Next p
 End Sub
 
 Function SheetExistsInWb(wb As Workbook, sheetName As String) As Boolean
