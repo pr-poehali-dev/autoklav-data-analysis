@@ -876,9 +876,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     rStart As Long, rEnd As Long, cycleIdx As Integer, _
     tRefC As Double, topOffset As Long)
 
-    Const CHART_W As Long = 900
-    Const CHART_H As Long = 380
-    Const CHART_GAP As Long = 20
+    Const CHART_W As Long = 1100  ' шире — больше точек на оси X
+    Const CHART_H As Long = 280   ' компактнее — чтобы все циклы умещались
+    Const CHART_GAP As Long = 10
 
     Dim co As ChartObject
     Set co = ws.ChartObjects.Add( _
@@ -921,6 +921,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ReDim arrF0(1 To nRows)
     ReDim arrTref(1 To nRows)
 
+    Dim f0MaxVal As Double : f0MaxVal = 0
+
     For ri = 1 To nRows
         Dim rowIdx As Long : rowIdx = rStart + ri - 1
         Dim vEnv As Variant, vProd As Variant, vF0 As Variant
@@ -931,9 +933,26 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
         arrF0(ri)   = IIf(IsNumeric(vF0), CDbl(vF0), 0)
         arrTref(ri) = tRefC
+        If arrF0(ri) > f0MaxVal Then f0MaxVal = arrF0(ri)
     Next ri
 
-    ' --- Серия 1: T° продукта — бирюзовая ---
+    ' Округляем максимум F0 вверх для красивой шкалы
+    Dim f0AxisMax As Double
+    If f0MaxVal <= 0 Then
+        f0AxisMax = 1
+    ElseIf f0MaxVal <= 5 Then
+        f0AxisMax = 5
+    ElseIf f0MaxVal <= 10 Then
+        f0AxisMax = 10
+    ElseIf f0MaxVal <= 20 Then
+        f0AxisMax = 20
+    ElseIf f0MaxVal <= 50 Then
+        f0AxisMax = 50
+    Else
+        f0AxisMax = CDbl(CLng(f0MaxVal * 1.2 / 10 + 1) * 10)
+    End If
+
+    ' --- Серия 1: T° продукта — бирюзовая, сглаженная ---
     Dim s1 As Series
     Set s1 = cht.SeriesCollection.NewSeries
     s1.Name = "T° продукта"
@@ -942,6 +961,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s1.Format.Line.ForeColor.RGB = RGB(0, 210, 200)
     s1.Format.Line.Weight = 2.5
     s1.MarkerStyle = xlMarkerStyleNone
+    s1.Smooth = True
     s1.AxisGroup = xlPrimary
 
     ' --- Серия 2: Температура среды — жёлтая ---
@@ -953,17 +973,19 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s2.Format.Line.ForeColor.RGB = RGB(220, 190, 0)
     s2.Format.Line.Weight = 2
     s2.MarkerStyle = xlMarkerStyleNone
+    s2.Smooth = False  ' среда реагирует быстро — не сглаживаем
     s2.AxisGroup = xlPrimary
 
-    ' --- Серия 3: F0 накопленный — оранжевая, вторая ось ---
+    ' --- Серия 3: F0 накопленный — оранжевая, вторая ось, сглаженная ---
     Dim s3 As Series
     Set s3 = cht.SeriesCollection.NewSeries
     s3.Name = "F0 накопл."
     s3.Values = arrF0
     s3.XValues = timeLabels
     s3.Format.Line.ForeColor.RGB = RGB(255, 100, 0)
-    s3.Format.Line.Weight = 2
+    s3.Format.Line.Weight = 2.5
     s3.MarkerStyle = xlMarkerStyleNone
+    s3.Smooth = True   ' сглаженная кривая
     s3.AxisGroup = xlSecondary
 
     ' --- Серия 4: Tref — красная пунктирная ---
@@ -1003,21 +1025,33 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .TickLabels.Font.Size = 9
         End With
 
-        ' Ось F0 (вторичная)
+        ' Ось F0 (вторичная) — фиксируем шкалу от 0 до max чтобы не прыгала
         With .Axes(xlValue, xlSecondary)
             .HasTitle = False
+            .MinimumScale = 0
+            .MaximumScale = f0AxisMax
             .TickLabels.Font.Color = RGB(200, 90, 0)
             .TickLabels.Font.Size = 8
         End With
 
         ' Ось X — время HH:MM
+        ' Цель: ~20-30 меток на графике независимо от количества строк
         With .Axes(xlCategory)
             .HasTitle = False
-            .TickLabels.Font.Size = 8
+            .TickLabels.Font.Size = 7
             .TickLabels.Font.Color = RGB(50, 50, 50)
-            ' Показываем каждую N-ю метку чтобы не перекрывались
             Dim tickStep As Long
-            tickStep = IIf(nRows > 300, CLng(nRows / 30), IIf(nRows > 60, CLng(nRows / 15), 1))
+            If nRows > 3000 Then
+                tickStep = CLng(nRows / 25)      ' ~25 меток
+            ElseIf nRows > 600 Then
+                tickStep = CLng(nRows / 20)      ' ~20 меток
+            ElseIf nRows > 120 Then
+                tickStep = CLng(nRows / 15)      ' ~15 меток
+            ElseIf nRows > 30 Then
+                tickStep = CLng(nRows / 10)      ' ~10 меток
+            Else
+                tickStep = 1
+            End If
             If tickStep < 1 Then tickStep = 1
             .TickLabelSpacing = tickStep
             .TickMarkSpacing = tickStep
@@ -1098,7 +1132,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
                 cycIdx = cycIdx + 1
                 Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                topOffset = topOffset + 400  ' следующий график ниже
+                topOffset = topOffset + 300  ' следующий график ниже (компактно)
 
                 inCyc = False : tMaxCy = -999 : peakCy = False : tKmaxCy = 0
             End If
