@@ -109,19 +109,39 @@ Sub ImportAndParseCSV(wb As Workbook, filePath As String, ByRef wsData As Worksh
             fields = Split(lineText, ",")
         End If
 
-        ' Пропускаем строку заголовков оригинального CSV (первая строка)
+        ' -------------------------------------------------------
+        ' Очищаем кавычки из всех полей (CSV обёрнут в "...")
+        ' -------------------------------------------------------
+        Dim k As Integer
+        For k = 0 To UBound(fields)
+            fields(k) = Trim(fields(k))
+            ' Убираем обрамляющие кавычки
+            If Len(fields(k)) >= 2 Then
+                If Left(fields(k), 1) = Chr(34) And Right(fields(k), 1) = Chr(34) Then
+                    fields(k) = Mid(fields(k), 2, Len(fields(k)) - 2)
+                End If
+            End If
+        Next k
+
+        ' -------------------------------------------------------
+        ' Пропускаем строку заголовков CSV (содержит нечисловое в поле 0)
+        ' -------------------------------------------------------
         If rowNum = 2 Then
-            ' Проверяем: если строка содержит нечисловые данные — это заголовок, пропускаем
-            If Not IsNumeric(Trim(fields(0))) And _
-               (InStr(LCase(Trim(fields(0))), "fecha") > 0 Or _
-                InStr(LCase(Trim(fields(0))), "date") > 0 Or _
-                InStr(LCase(Trim(fields(0))), "дата") > 0 Or _
-                Left(Trim(fields(0)), 2) = "DA") Then
-                GoTo NextLine
+            Dim f0clean As String
+            f0clean = LCase(Trim(fields(0)))
+            If InStr(f0clean, "fecha") > 0 Or InStr(f0clean, "date") > 0 Or _
+               InStr(f0clean, "дата") > 0 Or Left(f0clean, 4) = "data" Or _
+               Not (f0clean Like "####/##/##" Or f0clean Like "##/##/####" Or IsDate(f0clean)) Then
+                ' Дополнительная проверка: если поле 4 (темп. продукта) тоже не число — это заголовок
+                Dim fCheck As String
+                fCheck = Trim(fields(4))
+                If Not IsNumeric(fCheck) Then GoTo NextLine
             End If
         End If
 
-        ' Записываем все доступные столбцы (до 17)
+        ' -------------------------------------------------------
+        ' Записываем все 17 столбцов с правильным преобразованием
+        ' -------------------------------------------------------
         Dim totalCols As Integer
         totalCols = UBound(fields) + 1
         If totalCols > 17 Then totalCols = 17
@@ -129,15 +149,47 @@ Sub ImportAndParseCSV(wb As Workbook, filePath As String, ByRef wsData As Worksh
         For i = 0 To totalCols - 1
             Dim cellVal As String
             cellVal = Trim(fields(i))
-            ' Замена запятой-разделителя дробной части на точку
-            If i >= 2 Then cellVal = Replace(cellVal, ",", ".")
-            If IsNumeric(cellVal) Then
-                wsData.Cells(rowNum, i + 1).Value = CDbl(cellVal)
-            ElseIf IsDate(cellVal) Then
-                wsData.Cells(rowNum, i + 1).Value = CDate(cellVal)
-            Else
-                wsData.Cells(rowNum, i + 1).Value = cellVal
-            End If
+
+            Select Case i
+                Case 0 ' Столбец A — Дата формата YYYY/MM/DD
+                    ' Конвертируем YYYY/MM/DD → Excel дата
+                    Dim dateParts() As String
+                    If InStr(cellVal, "/") > 0 Then
+                        dateParts = Split(cellVal, "/")
+                        If UBound(dateParts) = 2 Then
+                            Dim yr As Integer, mo As Integer, dy As Integer
+                            yr = CInt(dateParts(0))
+                            mo = CInt(dateParts(1))
+                            dy = CInt(dateParts(2))
+                            wsData.Cells(rowNum, 1).Value = DateSerial(yr, mo, dy)
+                        Else
+                            wsData.Cells(rowNum, 1).Value = cellVal
+                        End If
+                    ElseIf IsDate(cellVal) Then
+                        wsData.Cells(rowNum, 1).Value = CDate(cellVal)
+                    Else
+                        wsData.Cells(rowNum, 1).Value = cellVal
+                    End If
+
+                Case 1 ' Столбец B — Время формата HH:MM:SS
+                    If IsDate(cellVal) Then
+                        wsData.Cells(rowNum, 2).Value = TimeValue(cellVal)
+                    ElseIf InStr(cellVal, ":") > 0 Then
+                        On Error Resume Next
+                        wsData.Cells(rowNum, 2).Value = TimeValue(cellVal)
+                        On Error GoTo 0
+                    Else
+                        wsData.Cells(rowNum, 2).Value = cellVal
+                    End If
+
+                Case Else ' Столбцы 3–17 — числа (возможна точка или запятая)
+                    cellVal = Replace(cellVal, ",", ".")
+                    If IsNumeric(cellVal) Then
+                        wsData.Cells(rowNum, i + 1).Value = CDbl(cellVal)
+                    Else
+                        wsData.Cells(rowNum, i + 1).Value = cellVal
+                    End If
+            End Select
         Next i
 
         rowNum = rowNum + 1
@@ -145,10 +197,11 @@ NextLine:
     Loop
     Close #fileNum
 
-    ' Форматирование: дата, время, числа
+    ' Форматирование
     wsData.Columns(1).NumberFormat = "dd.mm.yyyy"
     wsData.Columns(2).NumberFormat = "hh:mm:ss"
-    wsData.Columns(4).Resize(, 8).NumberFormat = "0.00"
+    wsData.Columns(3).NumberFormat = "0"
+    wsData.Columns(4).Resize(, 14).NumberFormat = "0.00"
     wsData.Columns(18).NumberFormat = "0.0000"
     wsData.Rows(1).Font.Bold = True
     wsData.Rows(1).Interior.Color = RGB(15, 40, 65)
@@ -251,32 +304,24 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
         tempProd = CDbl(rawVal)
 
         If Not inCycle Then
+            ' Начало цикла: температура поднимается выше T_START
+            ' Не требуем подтверждения роста — достаточно превышения порога
             If tempProd >= T_START Then
-                Dim nextTemp As Double
-                nextTemp = tempProd
-                If i < lastRow Then
-                    Dim nv As Variant
-                    nv = wsData.Cells(i + 1, COL_TEMP_PROD).Value
-                    If IsNumeric(nv) Then nextTemp = CDbl(nv)
-                End If
-                If nextTemp > tempProd Or tempProd > 60 Then
-                    inCycle = True
-                    cycleStart = i
-                    f0Cycle = 0
-                    tMax = tempProd
-                    tMin = tempProd
-                    peakReached = False
-                    ' Сохраняем дату+время начала цикла как одно число
-                    Dim dv As Variant, tv As Variant
-                    dv = wsData.Cells(i, COL_DATE).Value
-                    tv = wsData.Cells(i, COL_TIME).Value
-                    If IsNumeric(dv) And IsNumeric(tv) Then
-                        cycleStartTime = CDbl(dv) + CDbl(tv)
-                    ElseIf IsDate(dv) And IsDate(tv) Then
-                        cycleStartTime = CDbl(CDate(dv)) + CDbl(CDate(tv))
-                    Else
-                        cycleStartTime = 0
-                    End If
+                inCycle = True
+                cycleStart = i
+                f0Cycle = 0
+                tMax = tempProd
+                tMin = tempProd
+                peakReached = False
+
+                ' Сохраняем дату+время начала цикла
+                Dim dv As Variant, tv As Variant
+                dv = wsData.Cells(i, COL_DATE).Value
+                tv = wsData.Cells(i, COL_TIME).Value
+                If IsNumeric(dv) And IsNumeric(tv) Then
+                    cycleStartTime = CDbl(dv) + CDbl(tv)
+                Else
+                    cycleStartTime = 0
                 End If
             End If
         Else
@@ -289,19 +334,35 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 lethality = 10 ^ ((tempProd - T_REF) / Z_FACTOR)
 
                 ' Вычисляем Δt в минутах из столбцов A (дата) + B (время)
+                ' Дата хранится как целое число Excel, время — как дробная часть (0..1)
                 Dim deltaT As Double
-                deltaT = 1
+                deltaT = 1  ' значение по умолчанию — 1 минута
                 If i > cycleStart Then
                     Dim d1 As Variant, d2 As Variant
-                    Dim t1 As Variant, t2 As Variant
+                    Dim t1v As Variant, t2v As Variant
                     d1 = wsData.Cells(i - 1, COL_DATE).Value
-                    t1 = wsData.Cells(i - 1, COL_TIME).Value
+                    t1v = wsData.Cells(i - 1, COL_TIME).Value
                     d2 = wsData.Cells(i, COL_DATE).Value
-                    t2 = wsData.Cells(i, COL_TIME).Value
-                    If IsNumeric(d1) And IsNumeric(t1) And IsNumeric(d2) And IsNumeric(t2) Then
+                    t2v = wsData.Cells(i, COL_TIME).Value
+                    ' Оба значения должны быть числами (Excel хранит дату/время как число)
+                    If IsNumeric(d1) And IsNumeric(t1v) And IsNumeric(d2) And IsNumeric(t2v) Then
                         Dim dt As Double
-                        dt = ((CDbl(d2) + CDbl(t2)) - (CDbl(d1) + CDbl(t1))) * 24 * 60
-                        If dt > 0 And dt <= 10 Then deltaT = dt
+                        ' Полная дата-время = дата (целая) + время (дробная часть)
+                        dt = ((CDbl(d2) + CDbl(t2v)) - (CDbl(d1) + CDbl(t1v))) * 24# * 60#
+                        ' Защита: интервал должен быть положительным и разумным (< 30 мин)
+                        If dt > 0# And dt < 30# Then
+                            deltaT = dt
+                        ElseIf dt <= 0# Then
+                            ' Возможно миллисекунды в столбце C дают точность
+                            Dim ms1 As Variant, ms2 As Variant
+                            ms1 = wsData.Cells(i - 1, 3).Value  ' столбец C — миллисекунды
+                            ms2 = wsData.Cells(i, 3).Value
+                            If IsNumeric(ms1) And IsNumeric(ms2) Then
+                                Dim dtMs As Double
+                                dtMs = (CDbl(ms2) - CDbl(ms1)) / 1000# / 60#  ' мс → минуты
+                                If dtMs > 0# And dtMs < 30# Then deltaT = dtMs
+                            End If
+                        End If
                     End If
                 End If
 
@@ -1120,8 +1181,16 @@ export default function Index() {
                     note: 'Определяется автоматически: ";" или ",". Ручная правка не нужна.',
                   },
                   {
-                    key: "Δt без времени",
-                    note: "Если столбец A не содержит дату/время — интервал берётся 1 мин (защита от ошибки).",
+                    key: 'Значения в "кавычках"',
+                    note: 'Автоматически очищаются. Формат "2026/05/20" и "14.91910" — обрабатываются корректно.',
+                  },
+                  {
+                    key: "Дата YYYY/MM/DD",
+                    note: "Нестандартный формат автоклава конвертируется через DateSerial — Excel принимает как дату.",
+                  },
+                  {
+                    key: "Δt из миллисекунд",
+                    note: "Если интервал по времени = 0 (записи за 1 сек) — используется столбец C (миллисекунды).",
                   },
                 ].map((tip) => (
                   <div
