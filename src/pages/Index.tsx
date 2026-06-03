@@ -858,58 +858,88 @@ End Sub
 '-------------------------------------------------------------
 ' Вспомогательная: возвращает Δt в минутах между строками r1 и r2
 '-------------------------------------------------------------
+'-------------------------------------------------------------
+' Вспомогательная: абсолютное время строки в секундах от 01.01.1900
+' Используется для надёжного расчёта Δt через границы суток и файлов
+'-------------------------------------------------------------
+Function RowAbsSeconds(ws As Worksheet, r As Long) As Double
+    RowAbsSeconds = 0
+
+    Dim dv As Variant, tv As Variant
+    dv = ws.Cells(r, 1).Value  ' столбец A — дата
+    tv = ws.Cells(r, 2).Value  ' столбец B — время
+
+    ' Дата как число Excel (целая часть = дни от 01.01.1900)
+    Dim dateDays As Double
+    dateDays = 0
+    If IsNumeric(dv) And CLng(CDbl(dv)) > 0 Then
+        dateDays = CLng(CDbl(dv))
+    ElseIf IsDate(dv) Then
+        dateDays = CDbl(CDate(dv))
+    End If
+
+    ' Время как дробь Excel (0..1) или строка HH:MM:SS
+    Dim timeFrac As Double
+    timeFrac = 0
+    If IsNumeric(tv) Then
+        timeFrac = CDbl(tv)
+    ElseIf InStr(CStr(tv), ":") > 0 Then
+        On Error Resume Next
+        timeFrac = CDbl(TimeValue(Trim(CStr(tv))))
+        On Error GoTo 0
+    End If
+
+    If dateDays > 0 Then
+        RowAbsSeconds = (dateDays + timeFrac) * 86400#
+    End If
+End Function
+
 Function CalcDeltaT(ws As Worksheet, r1 As Long, r2 As Long) As Double
     CalcDeltaT = 0
-    ' Источник 1: столбец C (миллисекунды суток)
+
+    ' --------------------------------------------------------
+    ' Основной метод: абсолютные секунды через дату+время A+B
+    ' Работает через границы суток и объединённые файлы
+    ' --------------------------------------------------------
+    Dim abs1 As Double, abs2 As Double
+    abs1 = RowAbsSeconds(ws, r1)
+    abs2 = RowAbsSeconds(ws, r2)
+
+    If abs1 > 0 And abs2 > 0 Then
+        Dim dtSec As Double
+        dtSec = abs2 - abs1
+        ' Допустимый диапазон: 1 секунда .. 30 минут
+        If dtSec >= 1# And dtSec <= 1800# Then
+            CalcDeltaT = dtSec / 60#
+            Exit Function
+        End If
+    End If
+
+    ' --------------------------------------------------------
+    ' Резерв: столбец C как мс СУТОК (большие значения > 1000)
+    ' --------------------------------------------------------
     Dim ms1v As Variant, ms2v As Variant
     ms1v = ws.Cells(r1, 3).Value
     ms2v = ws.Cells(r2, 3).Value
     If IsNumeric(ms1v) And IsNumeric(ms2v) Then
-        Dim diffSec As Double
-        diffSec = (CDbl(ms2v) - CDbl(ms1v)) / 1000#
-        If diffSec < 0 Then  ' переход суток
-            Dim da1 As Variant, da2 As Variant
-            da1 = ws.Cells(r1, 1).Value : da2 = ws.Cells(r2, 1).Value
-            If IsNumeric(da1) And IsNumeric(da2) Then
-                diffSec = diffSec + (CLng(CDbl(da2)) - CLng(CDbl(da1))) * 86400#
-            Else
-                diffSec = diffSec + 86400#
+        Dim msV1 As Double, msV2 As Double
+        msV1 = CDbl(ms1v) : msV2 = CDbl(ms2v)
+        If msV1 > 1000 Then  ' это абсолютные мс суток
+            Dim diffSec As Double
+            diffSec = (msV2 - msV1) / 1000#
+            If diffSec < 0 Then  ' переход суток
+                Dim da1 As Variant, da2 As Variant
+                da1 = ws.Cells(r1, 1).Value : da2 = ws.Cells(r2, 1).Value
+                If IsNumeric(da1) And IsNumeric(da2) Then
+                    diffSec = diffSec + (CLng(CDbl(da2)) - CLng(CDbl(da1))) * 86400#
+                Else
+                    diffSec = diffSec + 86400#
+                End If
             End If
-        End If
-        If diffSec >= 0.5 And diffSec <= 1800 Then
-            CalcDeltaT = diffSec / 60#
-            Exit Function
-        End If
-    End If
-    ' Источник 2: столбцы A+B (дата + время как числа Excel)
-    Dim d1v As Variant, t1v As Variant, d2v As Variant, t2v As Variant
-    d1v = ws.Cells(r1, 1).Value : t1v = ws.Cells(r1, 2).Value
-    d2v = ws.Cells(r2, 1).Value : t2v = ws.Cells(r2, 2).Value
-    If IsNumeric(d1v) And IsNumeric(t1v) And IsNumeric(d2v) And IsNumeric(t2v) Then
-        Dim dtMin As Double
-        dtMin = ((CDbl(d2v) + CDbl(t2v)) - (CDbl(d1v) + CDbl(t1v))) * 1440#
-        If dtMin < 0 Then dtMin = dtMin + 1440#  ' переход суток
-        If dtMin >= 0.008 And dtMin <= 30 Then
-            CalcDeltaT = dtMin
-            Exit Function
-        End If
-    End If
-    ' Источник 3: время как строка HH:MM:SS
-    If IsNumeric(d1v) And IsNumeric(d2v) Then
-        Dim ts1 As String, ts2 As String
-        ts1 = Trim(CStr(t1v)) : ts2 = Trim(CStr(t2v))
-        If InStr(ts1, ":") > 0 And InStr(ts2, ":") > 0 Then
-            On Error Resume Next
-            Dim tv1 As Double, tv2 As Double
-            tv1 = CDbl(TimeValue(ts1)) : tv2 = CDbl(TimeValue(ts2))
-            If Err.Number = 0 Then
-                Dim tdiff As Double
-                tdiff = (tv2 - tv1)
-                If tdiff < 0 Then tdiff = tdiff + (CLng(CDbl(d2v)) - CLng(CDbl(d1v))) + 1
-                tdiff = tdiff * 1440#
-                If tdiff >= 0.008 And tdiff <= 30 Then CalcDeltaT = tdiff
+            If diffSec >= 1# And diffSec <= 1800# Then
+                CalcDeltaT = diffSec / 60#
+                Exit Function
             End If
-            On Error GoTo 0
         End If
     End If
 End Function
@@ -947,12 +977,12 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
     Dim inCyc As Boolean
     Dim cyStart As Long
-    Dim lowCount As Integer  ' счётчик подряд "сухих" строк для надёжного конца
-    inCyc = False : lowCount = 0
+    Dim lowCount As Integer
+    Dim tKmaxP1 As Double   ' MAX заданной температуры за цикл (столбец K)
+    inCyc = False : lowCount = 0 : tKmaxP1 = 0
 
     Dim p As Long
     For p = 2 To lastRow
-        ' Считываем уровень воды и давление
         Dim wRv As Variant, prRv As Variant
         wRv = wsData.Cells(p, COL_WATER).Value
         prRv = wsData.Cells(p, COL_PRESSURE).Value
@@ -962,14 +992,23 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
         pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         If Not inCyc Then
-            ' Старт цикла: вода набрана И есть давление
             If waterLvl > WATER_ON And pressLvl > PRESS_ON Then
                 inCyc = True
                 cyStart = p
                 lowCount = 0
+                tKmaxP1 = 0
             End If
         Else
-            ' Конец цикла: вода слита (несколько строк подряд для надёжности)
+            ' Накапливаем MAX заданной температуры из столбца K
+            Dim tkRvP1 As Variant
+            tkRvP1 = wsData.Cells(p, COL_TREF).Value
+            If IsNumeric(tkRvP1) Then
+                Dim tkVP1 As Double : tkVP1 = CDbl(tkRvP1)
+                If tkVP1 >= 100# And tkVP1 <= 130# And tkVP1 > tKmaxP1 Then
+                    tKmaxP1 = tkVP1
+                End If
+            End If
+
             If waterLvl < WATER_OFF Then
                 lowCount = lowCount + 1
             Else
@@ -979,7 +1018,6 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             Dim cycEnd1 As Boolean
             cycEnd1 = (lowCount >= 3) Or (p = lastRow)
             If cycEnd1 Then
-                ' Конец цикла — на строке где вода ушла (откатываем назад)
                 Dim realEnd As Long
                 realEnd = IIf(lowCount >= 3, p - lowCount + 1, p)
                 If realEnd < cyStart Then realEnd = cyStart
@@ -988,9 +1026,16 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     cycleCount = cycleCount + 1
                     cycleStarts(cycleCount) = cyStart
                     cycleEnds_(cycleCount) = realEnd
-                    cycleTref(cycleCount) = T_REF  ' Tref=121.1 для стерилизации
+                    ' Tref из MAX столбца K: округляем к 115 или 120
+                    If tKmaxP1 >= 118# Then
+                        cycleTref(cycleCount) = 120#
+                    ElseIf tKmaxP1 >= 100# Then
+                        cycleTref(cycleCount) = 115#
+                    Else
+                        cycleTref(cycleCount) = T_REF  ' 121.1 если K не определён
+                    End If
                 End If
-                inCyc = False : lowCount = 0
+                inCyc = False : lowCount = 0 : tKmaxP1 = 0
             End If
         End If
 P1Next:
@@ -1042,14 +1087,14 @@ P1Next:
 P2Next:
         Next ri
 
-        ' Результат для отчёта
+        ' Результат для отчёта — длительность через абсолютные секунды (работает через сутки)
         Dim cycleNum As Integer : cycleNum = ci
         Dim durationMin As Double
-        durationMin = GetDateTimeAsDouble(wsData, rStart)
-        Dim dtEnd2 As Double
-        dtEnd2 = GetDateTimeAsDouble(wsData, rEnd)
-        If dtEnd2 > durationMin Then
-            durationMin = (dtEnd2 - durationMin) * 1440#
+        Dim absStart As Double, absEnd As Double
+        absStart = RowAbsSeconds(wsData, rStart)
+        absEnd   = RowAbsSeconds(wsData, rEnd)
+        If absStart > 0 And absEnd > 0 And absEnd > absStart Then
+            durationMin = (absEnd - absStart) / 60#
         Else
             durationMin = 0
         End If
@@ -1062,13 +1107,23 @@ P2Next:
         Dim tRefCycle As Double : tRefCycle = tRefC
 
         Dim result As String, resultColor As Long, noteText As String
-        ' Норма F0 для СТЕРИЛИЗАЦИИ (Tref=121.1°C, тушёнка по ГОСТ):
-        ' минимум 4.0-5.5, рекомендуемо 5.5-8.0 усл. минут
-        Dim f0Norm As Double
-        f0Norm = 5.5
 
+        ' Норма F0 и описание программы — зависят от Tref
+        Dim f0Norm As Double
         Dim trefStr As String
-        trefStr = "Tref=121.1C, z=10"
+        If tRefCycle >= 119# Then
+            ' Программа 120°C (Tref=120): стерилизация, норма F0 >= 5.5
+            f0Norm = 5.5
+            trefStr = "Программа 120C, Tref=120C, z=10"
+        ElseIf tRefCycle >= 113# Then
+            ' Программа 115°C (Tref=115): пастеризация, норма F0 >= 3
+            f0Norm = 3#
+            trefStr = "Программа 115C, Tref=115C, z=10"
+        Else
+            ' Нестандартная / не определена
+            f0Norm = 5.5
+            trefStr = "Tref=" & Format(tRefCycle, "0.0") & "C, z=10"
+        End If
 
         If Not peakC Then
             result = "— Без стерилизации"
@@ -1421,6 +1476,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim inCyc As Boolean : inCyc = False
     Dim cyStart As Long, cyEnd As Long
     Dim lowCount As Integer : lowCount = 0
+    Dim tKmaxCy As Double : tKmaxCy = 0   ' MAX столбца K за цикл
     Dim cycIdx As Integer : cycIdx = 0
     Dim topOffset As Long : topOffset = 30
 
@@ -1435,9 +1491,16 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
         If Not inCyc Then
             If waterLvl > WATER_ON And pressLvl > PRESS_ON Then
-                inCyc = True : cyStart = p : lowCount = 0
+                inCyc = True : cyStart = p : lowCount = 0 : tKmaxCy = 0
             End If
         Else
+            ' Накапливаем MAX заданной температуры (столбец K) для Tref графика
+            Dim tkRvCy As Variant : tkRvCy = wsData.Cells(p, 11).Value
+            If IsNumeric(tkRvCy) Then
+                Dim tkVCy As Double : tkVCy = CDbl(tkRvCy)
+                If tkVCy >= 100# And tkVCy <= 130# And tkVCy > tKmaxCy Then tKmaxCy = tkVCy
+            End If
+
             If waterLvl < WATER_OFF Then
                 lowCount = lowCount + 1
             Else
@@ -1449,14 +1512,21 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 cyEnd = IIf(lowCount >= 3, p - lowCount + 1, p)
                 If cyEnd < cyStart Then cyEnd = cyStart
 
+                ' Tref по программе из столбца K
                 Dim tRefCy As Double
-                tRefCy = T_REF
+                If tKmaxCy >= 118# Then
+                    tRefCy = 120#
+                ElseIf tKmaxCy >= 100# Then
+                    tRefCy = 115#
+                Else
+                    tRefCy = T_REF
+                End If
 
                 cycIdx = cycIdx + 1
                 Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
                 topOffset = topOffset + 700  ' следующий график на новом листе A4
 
-                inCyc = False : lowCount = 0
+                inCyc = False : lowCount = 0 : tKmaxCy = 0
             End If
         End If
 ChartNext:
