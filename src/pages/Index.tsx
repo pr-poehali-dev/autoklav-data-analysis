@@ -250,8 +250,8 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet)
         colHeaders(2) = "Начало"
         colHeaders(3) = "Конец"
         colHeaders(4) = "Длит. (мин)"
-        colHeaders(5) = "T макс. (°C)"
-        colHeaders(6) = "T мин. при стерил. (°C)"
+        colHeaders(5) = "T макс. (C)"
+        colHeaders(6) = "T мин. при стерил. (C)"
         colHeaders(7) = "F0 (мин)"
         colHeaders(8) = "Результат"
         colHeaders(9) = "Строк"
@@ -397,22 +397,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             If cycleEnds Then
                 cycleNum = cycleNum + 1
 
-                ' Время конца цикла — дата + время
-                Dim deV As Variant, teV As Variant
-                deV = wsData.Cells(i, COL_DATE).Value
-                teV = wsData.Cells(i, COL_TIME).Value
-                If IsNumeric(deV) And IsNumeric(teV) Then
-                    cycleEndTime = CDbl(deV) + CDbl(teV)
-                ElseIf IsDate(deV) And IsDate(teV) Then
-                    cycleEndTime = CDbl(CDate(deV)) + CDbl(CDate(teV))
-                Else
-                    cycleEndTime = 0
-                End If
-
-                durationMin = 0
-                If cycleStartTime > 0 And cycleEndTime > 0 Then
-                    durationMin = (CDbl(cycleEndTime) - CDbl(cycleStartTime)) * 24 * 60
-                End If
+                ' (durationMin будет рассчитана ниже через миллисекунды)
 
                 Dim result As String
                 Dim resultColor As Long
@@ -429,7 +414,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 End If
 
                 Dim trefStr As String
-                trefStr = "Tref=" & Format(tRefCycle, "0.#") & "C, z=10C"
+                trefStr = "Tref=" & Format(tRefCycle, "0.#") & "C"
 
                 If Not peakReached Then
                     result = "— Без стерилизации"
@@ -451,25 +436,30 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
                 ' Формируем строки даты/времени из исходных ячеек Data
                 Dim startDateStr As String, endDateStr As String
-                Dim sdDate As Variant, sdTime As Variant
-                Dim edDate As Variant, edTime As Variant
 
-                sdDate = wsData.Cells(cycleStart, COL_DATE).Value
-                sdTime = wsData.Cells(cycleStart, COL_TIME).Value
-                edDate = wsData.Cells(i, COL_DATE).Value
-                edTime = wsData.Cells(i, COL_TIME).Value
+                startDateStr = FormatDateTime_FromRow(wsData, cycleStart)
+                endDateStr   = FormatDateTime_FromRow(wsData, i)
 
-                ' Дата хранится как число Excel (DateSerial), время — как дробь (TimeValue)
-                If IsNumeric(sdDate) And IsNumeric(sdTime) Then
-                    startDateStr = Format(CDate(CLng(sdDate)), "dd.mm.yyyy") & " " & Format(CDate(CDbl(sdTime)), "hh:mm:ss")
-                Else
-                    startDateStr = CStr(sdDate) & " " & CStr(sdTime)
+                ' Длительность в минутах — через миллисекунды (столбец C, надёжнее)
+                durationMin = 0
+                Dim msStart As Variant, msEnd As Variant
+                msStart = wsData.Cells(cycleStart, 3).Value  ' столбец C — миллисекунды
+                msEnd   = wsData.Cells(i, 3).Value
+                If IsNumeric(msStart) And IsNumeric(msEnd) Then
+                    Dim msDiff As Double
+                    msDiff = CDbl(msEnd) - CDbl(msStart)
+                    ' Если значения убывают (переход суток/сброс счётчика) — считаем через дату+время
+                    If msDiff < 0 Then msDiff = 0
+                    durationMin = msDiff / 1000 / 60
                 End If
-
-                If IsNumeric(edDate) And IsNumeric(edTime) Then
-                    endDateStr = Format(CDate(CLng(edDate)), "dd.mm.yyyy") & " " & Format(CDate(CDbl(edTime)), "hh:mm:ss")
-                Else
-                    endDateStr = CStr(edDate) & " " & CStr(edTime)
+                ' Запасной вариант: через дату+время (столбцы A и B)
+                If durationMin = 0 Then
+                    Dim dtStart As Double, dtEnd As Double
+                    dtStart = GetDateTimeAsDouble(wsData, cycleStart)
+                    dtEnd   = GetDateTimeAsDouble(wsData, i)
+                    If dtEnd > dtStart Then
+                        durationMin = (dtEnd - dtStart) * 24 * 60
+                    End If
                 End If
 
                 With wsReport
@@ -550,27 +540,27 @@ End Sub
 Sub FormatReportSheet(wsReport As Worksheet)
     With wsReport
         .Columns(1).ColumnWidth = 7
-        .Columns(2).ColumnWidth = 20
-        .Columns(3).ColumnWidth = 20
-        .Columns(4).ColumnWidth = 12
+        .Columns(2).ColumnWidth = 22
+        .Columns(3).ColumnWidth = 22
+        .Columns(4).ColumnWidth = 13
         .Columns(5).ColumnWidth = 13
-        .Columns(6).ColumnWidth = 13
+        .Columns(6).ColumnWidth = 24
         .Columns(7).ColumnWidth = 13
         .Columns(8).ColumnWidth = 26
         .Columns(9).ColumnWidth = 8
-        .Columns(10).ColumnWidth = 24
+        .Columns(10).ColumnWidth = 20
         .Columns(1).HorizontalAlignment = xlCenter
         .Columns(4).HorizontalAlignment = xlCenter
         .Columns(7).HorizontalAlignment = xlCenter
         .Columns(9).HorizontalAlignment = xlCenter
-        .Cells.Interior.Color = RGB(8, 20, 38)
-        .Cells.Font.Color = RGB(180, 200, 220)
-        .Rows(1).Interior.Color = RGB(5, 15, 30)
-        .Rows(2).Interior.Color = RGB(5, 15, 30)
-        .Rows(3).Interior.Color = RGB(5, 15, 30)
-        .Rows(5).Interior.Color = RGB(15, 40, 65)
-        .Cells(1, 1).Font.Color = RGB(0, 180, 220)
+        ' Белый фон, чёрный шрифт
+        .Cells.Interior.Color = RGB(255, 255, 255)
+        .Cells.Font.Color = RGB(0, 0, 0)
+        ' Заголовок
+        .Cells(1, 1).Font.Color = RGB(0, 100, 180)
         .Cells(1, 1).Font.Size = 14
+        .Rows(2).Font.Color = RGB(80, 80, 80)
+        .Rows(3).Font.Color = RGB(80, 80, 80)
     End With
 End Sub
 
@@ -688,6 +678,64 @@ Function SheetExistsInWb(wb As Workbook, sheetName As String) As Boolean
     Set s = wb.Sheets(sheetName)
     SheetExistsInWb = Not s Is Nothing
     On Error GoTo 0
+End Function
+
+'-------------------------------------------------------------
+' Вспомогательная: форматирует дату+время из строки листа Data
+' Время строится из миллисекунд (столбец C) — самый точный источник
+'-------------------------------------------------------------
+Function FormatDateTime_FromRow(ws As Worksheet, rowIdx As Long) As String
+    Dim dateVal As Variant
+    Dim msVal As Variant
+    Dim timeVal As Variant
+
+    dateVal = ws.Cells(rowIdx, 1).Value  ' столбец A — дата
+    msVal   = ws.Cells(rowIdx, 3).Value  ' столбец C — миллисекунды от начала суток
+    timeVal = ws.Cells(rowIdx, 2).Value  ' столбец B — время (запасной вариант)
+
+    ' Форматируем дату
+    Dim datePart As String
+    If IsNumeric(dateVal) And CLng(dateVal) > 0 Then
+        datePart = Format(CDate(CLng(dateVal)), "dd.mm.yyyy")
+    ElseIf IsDate(dateVal) Then
+        datePart = Format(CDate(dateVal), "dd.mm.yyyy")
+    Else
+        datePart = CStr(dateVal)
+    End If
+
+    ' Форматируем время из миллисекунд
+    Dim timePart As String
+    If IsNumeric(msVal) And CDbl(msVal) >= 0 Then
+        Dim totalSec As Long
+        totalSec = CLng(CDbl(msVal) / 1000)
+        Dim hh As Integer, mm As Integer, ss As Integer
+        hh = totalSec \\ 3600
+        mm = (totalSec Mod 3600) \\ 60
+        ss = totalSec Mod 60
+        timePart = Format(hh, "00") & ":" & Format(mm, "00") & ":" & Format(ss, "00")
+    ElseIf IsNumeric(timeVal) Then
+        ' Время как дробь Excel (0..1)
+        timePart = Format(CDate(CDbl(timeVal)), "hh:mm:ss")
+    Else
+        timePart = CStr(timeVal)
+    End If
+
+    FormatDateTime_FromRow = datePart & " " & timePart
+End Function
+
+'-------------------------------------------------------------
+' Вспомогательная: возвращает дату+время как число Excel (для Δt)
+'-------------------------------------------------------------
+Function GetDateTimeAsDouble(ws As Worksheet, rowIdx As Long) As Double
+    Dim dateVal As Variant
+    Dim timeVal As Variant
+    dateVal = ws.Cells(rowIdx, 1).Value
+    timeVal = ws.Cells(rowIdx, 2).Value
+    If IsNumeric(dateVal) And IsNumeric(timeVal) Then
+        GetDateTimeAsDouble = CDbl(dateVal) + CDbl(timeVal)
+    Else
+        GetDateTimeAsDouble = 0
+    End If
 End Function`;
 
 const MOCK_CYCLES = [
