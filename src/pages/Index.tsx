@@ -9,9 +9,10 @@ const VBA_CODE = `'=============================================================
 
 Option Explicit
 
-' Глобальные константы стерилизации
-' Tref=100°C, z=10 — режим как на автоклаве (совпадает с фактором стерилизации прибора)
-Const T_REF As Double = 100#    ' Эталонная температура (C) — пастеризационный режим
+' Глобальные константы стерилизации (режим СТЕРИЛИЗАЦИИ — тушёнка по ГОСТ)
+' Tref=121.1°C, z=10 — стандарт для Clostridium botulinum
+' Стерилизующий эффект считается по датчику в центре продукта (столбец E)
+Const T_REF As Double = 121.1   ' Эталонная температура (C)
 Const Z_FACTOR As Double = 10#   ' Z-фактор (C)
 Const T_START As Double = 30#    ' Порог начала цикла (C)
 ' Порог накопления F0. По данным автоклава фактор стерилизации начинает
@@ -519,7 +520,7 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         .Cells(2, 1).Font.Bold = True
         .Range("A2:J2").Merge
 
-        .Cells(3, 1).Value = "Параметры: Tref = 100C  |  z-фактор = 10C  |  Метод: трапеций (как на автоклаве)"
+        .Cells(3, 1).Value = "Стерилизация: Tref = 121.1C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
         .Cells(3, 1).Font.Color = RGB(100, 120, 140)
         .Range("A3:J3").Merge
 
@@ -744,13 +745,13 @@ P2Next:
         Dim tRefCycle As Double : tRefCycle = tRefC
 
         Dim result As String, resultColor As Long, noteText As String
-        ' Норма F0 для режима Tref=100°C (пастеризационный эффект):
-        ' целевое значение ~15-20 усл. минут (как на автоклаве)
+        ' Норма F0 для СТЕРИЛИЗАЦИИ (Tref=121.1°C, тушёнка по ГОСТ):
+        ' минимум 4.0-5.5, рекомендуемо 5.5-8.0 усл. минут
         Dim f0Norm As Double
-        f0Norm = 15
+        f0Norm = 5.5
 
         Dim trefStr As String
-        trefStr = "Tref=" & Format(tRefCycle, "0") & "C, z=10"
+        trefStr = "Tref=121.1C, z=10"
 
         If Not peakC Then
             result = "— Без стерилизации"
@@ -873,13 +874,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     rStart As Long, rEnd As Long, cycleIdx As Integer, _
     tRefC As Double, topOffset As Long)
 
-    Const CHART_W As Long = 1100  ' шире — больше точек на оси X
-    Const CHART_H As Long = 280   ' компактнее — чтобы все циклы умещались
-    Const CHART_GAP As Long = 10
+    ' Размер под печать A4: ширина ~ до колонки N, один график на лист
+    Const CHART_W As Long = 720   ' до колонки N (помещается при печати A4)
+    Const CHART_H As Long = 680   ' почти весь лист A4 по высоте
 
     Dim co As ChartObject
     Set co = ws.ChartObjects.Add( _
-        Left:=10, Top:=topOffset, Width:=CHART_W, Height:=CHART_H)
+        Left:=5, Top:=topOffset, Width:=CHART_W, Height:=CHART_H)
 
     Dim cht As Chart
     Set cht = co.Chart
@@ -1118,13 +1119,27 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
                 cycIdx = cycIdx + 1
                 Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                topOffset = topOffset + 300  ' следующий график ниже (компактно)
+                topOffset = topOffset + 700  ' следующий график на новом листе A4
 
                 inCyc = False : tMaxCy = -999 : peakCy = False : tKmaxCy = 0
             End If
         End If
 ChartNext:
     Next p
+
+    ' Настройка печати: A4 портрет, вписать по ширине в 1 страницу,
+    ' каждый график (700px) попадает на отдельный лист
+    With ws.PageSetup
+        .Orientation = xlPortrait
+        .PaperSize = xlPaperA4
+        .Zoom = False
+        .FitToPagesWide = 1
+        .FitToPagesTall = False  ' высота не ограничена — много страниц
+        .LeftMargin = Application.InchesToPoints(0.3)
+        .RightMargin = Application.InchesToPoints(0.3)
+        .TopMargin = Application.InchesToPoints(0.3)
+        .BottomMargin = Application.InchesToPoints(0.3)
+    End With
 End Sub
 
 Function SheetExistsInWb(wb As Workbook, sheetName As String) As Boolean
