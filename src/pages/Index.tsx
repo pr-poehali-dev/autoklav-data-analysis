@@ -440,26 +440,13 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 startDateStr = FormatDateTime_FromRow(wsData, cycleStart)
                 endDateStr   = FormatDateTime_FromRow(wsData, i)
 
-                ' Длительность в минутах — через миллисекунды (столбец C, надёжнее)
+                ' Длительность в минутах — через дату+время (столбцы A + B)
                 durationMin = 0
-                Dim msStart As Variant, msEnd As Variant
-                msStart = wsData.Cells(cycleStart, 3).Value  ' столбец C — миллисекунды
-                msEnd   = wsData.Cells(i, 3).Value
-                If IsNumeric(msStart) And IsNumeric(msEnd) Then
-                    Dim msDiff As Double
-                    msDiff = CDbl(msEnd) - CDbl(msStart)
-                    ' Если значения убывают (переход суток/сброс счётчика) — считаем через дату+время
-                    If msDiff < 0 Then msDiff = 0
-                    durationMin = msDiff / 1000 / 60
-                End If
-                ' Запасной вариант: через дату+время (столбцы A и B)
-                If durationMin = 0 Then
-                    Dim dtStart As Double, dtEnd As Double
-                    dtStart = GetDateTimeAsDouble(wsData, cycleStart)
-                    dtEnd   = GetDateTimeAsDouble(wsData, i)
-                    If dtEnd > dtStart Then
-                        durationMin = (dtEnd - dtStart) * 24 * 60
-                    End If
+                Dim dtStart As Double, dtEnd As Double
+                dtStart = GetDateTimeAsDouble(wsData, cycleStart)
+                dtEnd   = GetDateTimeAsDouble(wsData, i)
+                If dtEnd > dtStart Then
+                    durationMin = (dtEnd - dtStart) * 24# * 60#
                 End If
 
                 With wsReport
@@ -518,15 +505,12 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Cells(reportRow, 4).Font.Bold = True
         .Cells(reportRow, 5).Value = "=MAX(E6:E" & lastDataRow & ")"
         .Cells(reportRow, 5).Font.Bold = True
-        .Cells(reportRow, 7).Value = "=SUM(G6:G" & lastDataRow & ")"
-        .Cells(reportRow, 7).NumberFormat = "0.0000"
-        .Cells(reportRow, 7).Font.Bold = True
-        .Cells(reportRow, 7).Font.Color = RGB(0, 220, 120)
+        ' F0 не суммируется — у каждой программы своё значение
+        .Cells(reportRow, 7).Value = ""
         .Cells(reportRow, 8).Value = "Всего циклов: " & totalCycles
         .Cells(reportRow, 8).Font.Bold = True
         .Rows(reportRow).Interior.Color = RGB(220, 235, 248)
         .Rows(reportRow).Font.Color = RGB(20, 60, 100)
-        .Cells(reportRow, 7).Font.Color = RGB(0, 140, 60)
         .Cells(reportRow, 1).Font.Color = RGB(0, 100, 180)
         .Rows(reportRow).Borders(xlEdgeTop).LineStyle = xlContinuous
         .Rows(reportRow).Borders(xlEdgeTop).Color = RGB(0, 100, 180)
@@ -703,22 +687,50 @@ Function FormatDateTime_FromRow(ws As Worksheet, rowIdx As Long) As String
         datePart = CStr(dateVal)
     End If
 
-    ' Форматируем время из миллисекунд
+    ' Форматируем время — приоритет: столбец B (строка HH:MM:SS или дробь Excel)
     Dim timePart As String
-    If IsNumeric(msVal) And CDbl(msVal) >= 0 Then
-        Dim totalSec As Long
-        totalSec = CLng(CDbl(msVal) / 1000)
-        Dim hh As Integer, mm As Integer, ss As Integer
-        hh = totalSec \\ 3600
-        mm = (totalSec Mod 3600) \\ 60
-        ss = totalSec Mod 60
-        timePart = Format(hh, "00") & ":" & Format(mm, "00") & ":" & Format(ss, "00")
-    ElseIf IsNumeric(timeVal) Then
-        ' Время как дробь Excel (0..1)
-        timePart = Format(CDate(CDbl(timeVal)), "hh:mm:ss")
-    Else
-        timePart = CStr(timeVal)
+    timePart = ""
+
+    ' Вариант 1: время как строка "HH:MM:SS" (столбец B)
+    Dim tvStr As String
+    tvStr = Trim(CStr(timeVal))
+    If InStr(tvStr, ":") > 0 Then
+        ' Убираем возможные кавычки
+        If Left(tvStr, 1) = Chr(34) Then tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
+        On Error Resume Next
+        Dim tvCDate As Date
+        tvCDate = TimeValue(tvStr)
+        If Err.Number = 0 Then
+            timePart = Format(tvCDate, "hh:mm:ss")
+        End If
+        On Error GoTo 0
     End If
+
+    ' Вариант 2: время как дробь Excel (0..1)
+    If timePart = "" And IsNumeric(timeVal) Then
+        Dim tvDbl As Double
+        tvDbl = CDbl(timeVal)
+        If tvDbl >= 0 And tvDbl < 1 Then
+            timePart = Format(CDate(tvDbl), "hh:mm:ss")
+        End If
+    End If
+
+    ' Вариант 3: из миллисекунд суток (столбец C), если там большое число (> 1000)
+    If timePart = "" And IsNumeric(msVal) Then
+        Dim msLng As Long
+        msLng = CLng(CDbl(msVal))
+        If msLng > 1000 Then
+            Dim totalSec As Long
+            totalSec = msLng \\ 1000
+            Dim hh As Integer, mm As Integer, ss As Integer
+            hh = totalSec \\ 3600
+            mm = (totalSec Mod 3600) \\ 60
+            ss = totalSec Mod 60
+            timePart = Format(hh, "00") & ":" & Format(mm, "00") & ":" & Format(ss, "00")
+        End If
+    End If
+
+    If timePart = "" Then timePart = CStr(timeVal)
 
     FormatDateTime_FromRow = datePart & " " & timePart
 End Function
@@ -731,8 +743,34 @@ Function GetDateTimeAsDouble(ws As Worksheet, rowIdx As Long) As Double
     Dim timeVal As Variant
     dateVal = ws.Cells(rowIdx, 1).Value
     timeVal = ws.Cells(rowIdx, 2).Value
-    If IsNumeric(dateVal) And IsNumeric(timeVal) Then
-        GetDateTimeAsDouble = CDbl(dateVal) + CDbl(timeVal)
+
+    ' Получаем числовое значение даты
+    Dim dateDbl As Double
+    dateDbl = 0
+    If IsNumeric(dateVal) And CLng(CDbl(dateVal)) > 0 Then
+        dateDbl = CDbl(CLng(CDbl(dateVal)))
+    ElseIf IsDate(dateVal) Then
+        dateDbl = CDbl(CDate(dateVal))
+    End If
+
+    ' Получаем числовое значение времени (дробь 0..1)
+    Dim timeDbl As Double
+    timeDbl = 0
+    If IsNumeric(timeVal) Then
+        timeDbl = CDbl(timeVal)
+    Else
+        Dim tvs As String
+        tvs = Trim(CStr(timeVal))
+        If Left(tvs, 1) = Chr(34) Then tvs = Mid(tvs, 2, Len(tvs) - 2)
+        If InStr(tvs, ":") > 0 Then
+            On Error Resume Next
+            timeDbl = CDbl(TimeValue(tvs))
+            On Error GoTo 0
+        End If
+    End If
+
+    If dateDbl > 0 Then
+        GetDateTimeAsDouble = dateDbl + timeDbl
     Else
         GetDateTimeAsDouble = 0
     End If
