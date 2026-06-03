@@ -80,7 +80,7 @@ Sub ImportAndParseCSV(wb As Workbook, filePath As String, ByRef wsData As Worksh
     headers(8)  = "Q recirculación"
     headers(9)  = "ДАВЛЕНИЕ СЖАТОГО ВОЗДУХА"
     headers(10) = "SP presión"
-    headers(11) = "ЗАДАНИЕ ТЕМПЕРАТУРЫ"
+    headers(11) = "ЗАДАННАЯ ТЕМПЕРАТУРА"
     headers(12) = "КЛАПАН ПОВЫШЕНИЯ ДАВЛЕНИЯ"
     headers(13) = "КЛАПАН СБРОСА ДАВЛЕНИЯ"
     headers(14) = "КЛАПАН НАГРЕВА"
@@ -225,18 +225,22 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet)
     wsReport.Name = "F0_Report"
 
     With wsReport
+        ' Белый фон всего листа — сначала, чтобы не перекрыть заголовки
+        .Cells.Interior.Color = RGB(255, 255, 255)
+        .Cells.Font.Color = RGB(30, 30, 30)
+
         .Cells(1, 1).Value = "ПРОТОКОЛ СТЕРИЛИЗАЦИИ — РАСЧЁТ F0"
         .Cells(1, 1).Font.Size = 14
         .Cells(1, 1).Font.Bold = True
-        .Cells(1, 1).Font.Color = RGB(0, 180, 220)
+        .Cells(1, 1).Font.Color = RGB(0, 100, 180)
         .Range("A1:J1").Merge
 
         .Cells(2, 1).Value = "Дата формирования: " & Format(Now, "dd.mm.yyyy hh:mm")
-        .Cells(2, 1).Font.Color = RGB(120, 140, 160)
+        .Cells(2, 1).Font.Color = RGB(100, 120, 140)
         .Range("A2:J2").Merge
 
-        .Cells(3, 1).Value = "Параметры: Tref = 121.1C  |  z-фактор = 10C  |  Метод: трапеций"
-        .Cells(3, 1).Font.Color = RGB(120, 140, 160)
+        .Cells(3, 1).Value = "Параметры: Tref = из столбца K (ЗАДАННАЯ ТЕМПЕРАТУРА)  |  z-фактор = 10C  |  Метод: трапеций"
+        .Cells(3, 1).Font.Color = RGB(100, 120, 140)
         .Range("A3:J3").Merge
 
         .Rows(4).RowHeight = 6
@@ -246,8 +250,8 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet)
         colHeaders(2) = "Начало"
         colHeaders(3) = "Конец"
         colHeaders(4) = "Длит. (мин)"
-        colHeaders(5) = "T макс. (C)"
-        colHeaders(6) = "T мин. (C)"
+        colHeaders(5) = "T макс. (°C)"
+        colHeaders(6) = "T мин. при стерил. (°C)"
         colHeaders(7) = "F0 (мин)"
         colHeaders(8) = "Результат"
         colHeaders(9) = "Строк"
@@ -258,10 +262,10 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet)
             .Cells(5, c).Value = colHeaders(c)
             .Cells(5, c).Font.Bold = True
             .Cells(5, c).Font.Color = RGB(255, 255, 255)
-            .Cells(5, c).Interior.Color = RGB(15, 40, 65)
+            .Cells(5, c).Interior.Color = RGB(30, 80, 130)
             .Cells(5, c).HorizontalAlignment = xlCenter
             .Cells(5, c).Borders(xlEdgeBottom).LineStyle = xlContinuous
-            .Cells(5, c).Borders(xlEdgeBottom).Color = RGB(0, 180, 220)
+            .Cells(5, c).Borders(xlEdgeBottom).Color = RGB(0, 120, 200)
         Next c
     End With
 End Sub
@@ -283,10 +287,14 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Dim durationMin As Double
     Dim peakReached As Boolean
 
-    Const COL_DATE As Integer = 1      ' Столбец A — Дата
-    Const COL_TIME As Integer = 2      ' Столбец B — Время
-    Const COL_TEMP_PROD As Integer = 5 ' Столбец E — Температура продукта
-    Const COL_F0 As Integer = 18       ' Столбец R — накопленный F0
+    Const COL_DATE As Integer = 1       ' Столбец A — Дата
+    Const COL_TIME As Integer = 2       ' Столбец B — Время
+    Const COL_TEMP_PROD As Integer = 5  ' Столбец E — Температура продукта
+    Const COL_TREF As Integer = 11      ' Столбец K — Заданная температура (Tref цикла)
+    Const COL_F0 As Integer = 18        ' Столбец R — накопленный F0
+
+    Dim tRefCycle As Double             ' Tref текущего цикла (из столбца K)
+    tRefCycle = T_REF                   ' по умолчанию 121.1C
 
     cycleNum = 0
     inCycle = False
@@ -314,6 +322,15 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 tMin = tempProd
                 peakReached = False
 
+                ' Считываем Tref из столбца K (ЗАДАННАЯ ТЕМПЕРАТУРА)
+                Dim trefRaw As Variant
+                trefRaw = wsData.Cells(i, COL_TREF).Value
+                If IsNumeric(trefRaw) And CDbl(trefRaw) > 50 Then
+                    tRefCycle = CDbl(trefRaw)
+                Else
+                    tRefCycle = T_REF  ' fallback 121.1C
+                End If
+
                 ' Сохраняем дату+время начала цикла
                 Dim dv As Variant, tv As Variant
                 dv = wsData.Cells(i, COL_DATE).Value
@@ -331,7 +348,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
             If tempProd >= T_MIN_STERIL Then
                 Dim lethality As Double
-                lethality = 10 ^ ((tempProd - T_REF) / Z_FACTOR)
+                lethality = 10 ^ ((tempProd - tRefCycle) / Z_FACTOR)
 
                 ' Вычисляем Δt в минутах из столбцов A (дата) + B (время)
                 ' Дата хранится как целое число Excel, время — как дробная часть (0..1)
@@ -401,28 +418,64 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 Dim resultColor As Long
                 Dim noteText As String
 
+                ' Норма F0 зависит от Tref программы
+                Dim f0Norm As Double
+                If tRefCycle >= 121 Then
+                    f0Norm = 6    ' Tref 121.1C — стандарт ВОЗ
+                ElseIf tRefCycle >= 119 Then
+                    f0Norm = 10   ' Tref 120C — более мягкий режим, нужно больше времени
+                Else
+                    f0Norm = 15   ' Tref 115C — ещё мягче, норма выше
+                End If
+
+                Dim trefStr As String
+                trefStr = "Tref=" & Format(tRefCycle, "0.#") & "C, z=10C"
+
                 If Not peakReached Then
                     result = "— Без стерилизации"
                     resultColor = RGB(100, 120, 140)
-                    noteText = "Пик T < 100C — только простой"
-                ElseIf f0Cycle >= 6 Then
-                    result = "OK НОРМА (F0 >= 6)"
+                    noteText = "Пик T < 100C — только прогрев"
+                ElseIf f0Cycle >= f0Norm Then
+                    result = "OK НОРМА (F0 >= " & f0Norm & ")"
                     resultColor = RGB(0, 160, 80)
-                    noteText = "Tref=121.1C, z=10C"
-                ElseIf f0Cycle >= 3 Then
-                    result = "! ПРЕДЕЛ (3 <= F0 < 6)"
+                    noteText = trefStr
+                ElseIf f0Cycle >= f0Norm / 2 Then
+                    result = "! ПРЕДЕЛ (F0 >= " & f0Norm / 2 & ")"
                     resultColor = RGB(220, 140, 0)
-                    noteText = "Tref=121.1C, z=10C"
+                    noteText = trefStr
                 Else
-                    result = "X НЕДОСТАТОЧНО (F0 < 3)"
+                    result = "X НЕДОСТАТОЧНО (F0 < " & f0Norm / 2 & ")"
                     resultColor = RGB(200, 40, 40)
-                    noteText = "Tref=121.1C, z=10C"
+                    noteText = trefStr
+                End If
+
+                ' Формируем строки даты/времени из исходных ячеек Data
+                Dim startDateStr As String, endDateStr As String
+                Dim sdDate As Variant, sdTime As Variant
+                Dim edDate As Variant, edTime As Variant
+
+                sdDate = wsData.Cells(cycleStart, COL_DATE).Value
+                sdTime = wsData.Cells(cycleStart, COL_TIME).Value
+                edDate = wsData.Cells(i, COL_DATE).Value
+                edTime = wsData.Cells(i, COL_TIME).Value
+
+                ' Дата хранится как число Excel (DateSerial), время — как дробь (TimeValue)
+                If IsNumeric(sdDate) And IsNumeric(sdTime) Then
+                    startDateStr = Format(CDate(CLng(sdDate)), "dd.mm.yyyy") & " " & Format(CDate(CDbl(sdTime)), "hh:mm:ss")
+                Else
+                    startDateStr = CStr(sdDate) & " " & CStr(sdTime)
+                End If
+
+                If IsNumeric(edDate) And IsNumeric(edTime) Then
+                    endDateStr = Format(CDate(CLng(edDate)), "dd.mm.yyyy") & " " & Format(CDate(CDbl(edTime)), "hh:mm:ss")
+                Else
+                    endDateStr = CStr(edDate) & " " & CStr(edTime)
                 End If
 
                 With wsReport
                     .Cells(reportRow, 1).Value = cycleNum
-                    .Cells(reportRow, 2).Value = cycleStartTime
-                    .Cells(reportRow, 3).Value = cycleEndTime
+                    .Cells(reportRow, 2).Value = startDateStr
+                    .Cells(reportRow, 3).Value = endDateStr
                     .Cells(reportRow, 4).Value = Round(durationMin, 1)
                     .Cells(reportRow, 5).Value = Round(tMax, 2)
                     .Cells(reportRow, 6).Value = Round(tMin, 2)
@@ -431,24 +484,18 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     .Cells(reportRow, 9).Value = i - cycleStart + 1
                     .Cells(reportRow, 10).Value = noteText
 
-                    .Cells(reportRow, 2).NumberFormat = "dd.mm.yyyy hh:mm:ss"
-                    .Cells(reportRow, 3).NumberFormat = "dd.mm.yyyy hh:mm:ss"
-                    ' Приводим числовые даты к отображению дата+время
-                    If IsNumeric(.Cells(reportRow, 2).Value) Then
-                        .Cells(reportRow, 2).Value = CDate(.Cells(reportRow, 2).Value)
-                    End If
-                    If IsNumeric(.Cells(reportRow, 3).Value) Then
-                        .Cells(reportRow, 3).Value = CDate(.Cells(reportRow, 3).Value)
-                    End If
                     .Cells(reportRow, 7).NumberFormat = "0.0000"
                     .Cells(reportRow, 8).Font.Color = resultColor
                     .Cells(reportRow, 8).Font.Bold = True
 
+                    ' Чередование строк — светлый стиль
                     If cycleNum Mod 2 = 0 Then
-                        .Rows(reportRow).Interior.Color = RGB(20, 35, 55)
+                        .Rows(reportRow).Interior.Color = RGB(240, 246, 252)
                     Else
-                        .Rows(reportRow).Interior.Color = RGB(12, 25, 42)
+                        .Rows(reportRow).Interior.Color = RGB(255, 255, 255)
                     End If
+                    .Rows(reportRow).Font.Color = RGB(30, 30, 30)
+                    .Cells(reportRow, 8).Font.Color = resultColor
                 End With
 
                 reportRow = reportRow + 1
@@ -487,12 +534,12 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Cells(reportRow, 7).Font.Color = RGB(0, 220, 120)
         .Cells(reportRow, 8).Value = "Всего циклов: " & totalCycles
         .Cells(reportRow, 8).Font.Bold = True
-        .Rows(reportRow).Interior.Color = RGB(10, 30, 55)
-        .Rows(reportRow).Font.Color = RGB(200, 220, 240)
-        .Cells(reportRow, 7).Font.Color = RGB(0, 220, 120)
-        .Cells(reportRow, 1).Font.Color = RGB(0, 180, 220)
+        .Rows(reportRow).Interior.Color = RGB(220, 235, 248)
+        .Rows(reportRow).Font.Color = RGB(20, 60, 100)
+        .Cells(reportRow, 7).Font.Color = RGB(0, 140, 60)
+        .Cells(reportRow, 1).Font.Color = RGB(0, 100, 180)
         .Rows(reportRow).Borders(xlEdgeTop).LineStyle = xlContinuous
-        .Rows(reportRow).Borders(xlEdgeTop).Color = RGB(0, 180, 220)
+        .Rows(reportRow).Borders(xlEdgeTop).Color = RGB(0, 100, 180)
         .Rows(reportRow).Borders(xlEdgeTop).Weight = xlMedium
     End With
 End Sub
@@ -575,15 +622,24 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long)
     s2.Format.Line.Weight = 2.5
     s2.AxisGroup = xlSecondary
 
+    ' Линия Tref — берём первое значение из столбца K (заданная температура)
+    Dim tRefChart As Double
+    tRefChart = T_REF
+    Dim trefFirstRaw As Variant
+    trefFirstRaw = wsData.Cells(2, 11).Value
+    If IsNumeric(trefFirstRaw) And CDbl(trefFirstRaw) > 50 Then
+        tRefChart = CDbl(trefFirstRaw)
+    End If
+
     Dim s3 As Series
     Set s3 = cht.SeriesCollection.NewSeries
-    s3.Name = "Tref = 121.1C"
+    s3.Name = "Tref = " & Format(tRefChart, "0.#") & "C"
     Dim trefArr() As Double
     ReDim trefArr(1 To lastRow - 1)
-    Dim k As Long
-    For k = 1 To lastRow - 1
-        trefArr(k) = T_REF
-    Next k
+    Dim j As Long
+    For j = 1 To lastRow - 1
+        trefArr(j) = tRefChart
+    Next j
     s3.Values = trefArr
     s3.Format.Line.ForeColor.RGB = RGB(200, 40, 40)
     s3.Format.Line.DashStyle = msoLineDash
@@ -595,23 +651,34 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long)
         .ChartTitle.Text = "Температурный профиль автоклава и накопленный F0"
         .ChartTitle.Font.Size = 13
         .ChartTitle.Font.Bold = True
-        .PlotArea.Interior.Color = RGB(12, 25, 42)
-        .PlotArea.Border.LineStyle = xlNone
-        .ChartArea.Interior.Color = RGB(8, 20, 38)
-        .ChartArea.Border.LineStyle = xlNone
+        .ChartTitle.Font.Color = RGB(30, 30, 30)
+
+        ' Белый фон графика
+        .PlotArea.Interior.Color = RGB(248, 250, 252)
+        .PlotArea.Border.LineStyle = xlContinuous
+        .PlotArea.Border.Color = RGB(200, 210, 220)
+        .ChartArea.Interior.Color = RGB(255, 255, 255)
+        .ChartArea.Border.Color = RGB(180, 195, 210)
 
         With .Axes(xlValue, xlPrimary)
             .HasTitle = True
-            .AxisTitle.Text = "Температура (C)"
+            .AxisTitle.Text = "Температура (°C)"
+            .AxisTitle.Font.Color = RGB(50, 50, 50)
             .MajorGridlines.Format.Line.DashStyle = msoLineDash
+            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(210, 220, 230)
+            .TickLabels.Font.Color = RGB(60, 60, 60)
         End With
 
         With .Axes(xlValue, xlSecondary)
             .HasTitle = True
             .AxisTitle.Text = "F0 (мин)"
+            .AxisTitle.Font.Color = RGB(180, 80, 0)
+            .TickLabels.Font.Color = RGB(180, 80, 0)
         End With
 
         .HasLegend = True
+        .Legend.Interior.Color = RGB(255, 255, 255)
+        .Legend.Font.Color = RGB(30, 30, 30)
     End With
 End Sub
 
