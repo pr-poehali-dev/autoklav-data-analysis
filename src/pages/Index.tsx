@@ -13,7 +13,11 @@ Option Explicit
 Const T_REF As Double = 121.1   ' Эталонная температура (C)
 Const Z_FACTOR As Double = 10#   ' Z-фактор (C)
 Const T_START As Double = 30#    ' Порог начала цикла (C)
-Const T_MIN_STERIL As Double = 100# ' Минимум для счёта F0
+' Порог накопления F0. По данным автоклава фактор стерилизации начинает
+' накапливаться примерно с 90°C (вклад < 100°C мал, но даёт плавную кривую).
+Const T_MIN_STERIL As Double = 90#   ' Минимум для счёта F0
+' Порог "пика" — цикл считается стерилизационным если достиг этой T
+Const T_PEAK_STERIL As Double = 100# ' Подтверждение стерилизации
 
 '-------------------------------------------------------------
 ' Главная процедура — точка входа
@@ -648,7 +652,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             End If
         Else
             If tp > tMaxP1 Then tMaxP1 = tp
-            If tMaxP1 >= T_MIN_STERIL Then peakP1 = True
+            If tMaxP1 >= T_PEAK_STERIL Then peakP1 = True
             ' Накапливаем MAX заданной температуры
             Dim tkRv As Variant
             tkRv = wsData.Cells(p, COL_TREF).Value
@@ -705,16 +709,18 @@ P1Next:
             Dim tC As Double : tC = CDbl(tpC)
 
             If tC > tMaxC Then tMaxC = tC
+            ' Пик стерилизации — подтверждение, что цикл достиг 100°C
+            If tC >= T_PEAK_STERIL Then peakC = True
+
+            ' F0 накапливается с 90°C — плавная кривая как на автоклаве
             If tC >= T_MIN_STERIL Then
-                peakC = True
                 If tC < tMinC Then tMinC = tC
 
-                ' Δt в минутах
                 Dim dtC As Double : dtC = 0
                 If ri > rStart Then dtC = CalcDeltaT(wsData, ri - 1, ri)
 
                 If dtC > 0 Then
-                    ' Прямая формула Бигелоу — без разложения, без переполнения
+                    ' Прямая формула Бигелоу: L = 10^((T - Tref)/z), F0 += L * Δt
                     f0C = f0C + (10# ^ ((tC - tRefC) / Z_FACTOR)) * dtC
                 End If
             End If
@@ -1110,7 +1116,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
             End If
         Else
             If tp2 > tMaxCy Then tMaxCy = tp2
-            If tMaxCy >= T_MIN_STERIL Then peakCy = True
+            If tMaxCy >= T_PEAK_STERIL Then peakCy = True
             Dim tkR2 As Variant : tkR2 = wsData.Cells(p, 11).Value
             If IsNumeric(tkR2) Then
                 Dim tkV2 As Double : tkV2 = CDbl(tkR2)
