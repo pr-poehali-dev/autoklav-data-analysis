@@ -68,18 +68,28 @@ Sub ImportAndParseCSV(wb As Workbook, filePath As String, ByRef wsData As Worksh
     Set wsData = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
     wsData.Name = "Data"
 
-    Dim headers(1 To 9) As String
-    headers(1) = "Дата/Время"
-    headers(2) = "T_Камера1 (C)"
-    headers(3) = "T_Камера2 (C)"
-    headers(4) = "T_Камера3 (C)"
-    headers(5) = "T_Продукта (C)"
-    headers(6) = "Давление (бар)"
-    headers(7) = "Влажность (%)"
-    headers(8) = "Статус"
-    headers(9) = "F0_накоп."
+    ' Заголовки — 17 столбцов реального CSV автоклава + F0
+    Dim headers(1 To 18) As String
+    headers(1)  = "ДАТА"
+    headers(2)  = "ВРЕМЯ"
+    headers(3)  = "МИЛЛИСЕКУНДЫ"
+    headers(4)  = "ТЕМПЕРАТУРА СРЕДЫ"
+    headers(5)  = "ТЕМПЕРАТУРА ПРОДУКТА"
+    headers(6)  = "ДАВЛЕНИЕ"
+    headers(7)  = "УРОВЕНЬ ВОДЫ"
+    headers(8)  = "Q recirculación"
+    headers(9)  = "ДАВЛЕНИЕ СЖАТОГО ВОЗДУХА"
+    headers(10) = "SP presión"
+    headers(11) = "ЗАДАНИЕ ТЕМПЕРАТУРЫ"
+    headers(12) = "КЛАПАН ПОВЫШЕНИЯ ДАВЛЕНИЯ"
+    headers(13) = "КЛАПАН СБРОСА ДАВЛЕНИЯ"
+    headers(14) = "КЛАПАН НАГРЕВА"
+    headers(15) = "КЛАПАН ОХЛАЖДЕНИЯ"
+    headers(16) = "КЛАПАН ЗАПОЛНЕНИЯ"
+    headers(17) = "НОМЕР ЗАМЕСА"
+    headers(18) = "F0_накоп."
 
-    For i = 1 To 9
+    For i = 1 To 18
         wsData.Cells(1, i).Value = headers(i)
     Next i
 
@@ -99,13 +109,28 @@ Sub ImportAndParseCSV(wb As Workbook, filePath As String, ByRef wsData As Worksh
             fields = Split(lineText, ",")
         End If
 
-        Dim maxCol As Integer
-        maxCol = IIf(UBound(fields) + 1 > 8, 8, UBound(fields) + 1)
+        ' Пропускаем строку заголовков оригинального CSV (первая строка)
+        If rowNum = 2 Then
+            ' Проверяем: если строка содержит нечисловые данные — это заголовок, пропускаем
+            If Not IsNumeric(Trim(fields(0))) And _
+               (InStr(LCase(Trim(fields(0))), "fecha") > 0 Or _
+                InStr(LCase(Trim(fields(0))), "date") > 0 Or _
+                InStr(LCase(Trim(fields(0))), "дата") > 0 Or _
+                Left(Trim(fields(0)), 2) = "DA") Then
+                GoTo NextLine
+            End If
+        End If
 
-        For i = 0 To maxCol - 1
+        ' Записываем все доступные столбцы (до 17)
+        Dim totalCols As Integer
+        totalCols = UBound(fields) + 1
+        If totalCols > 17 Then totalCols = 17
+
+        For i = 0 To totalCols - 1
             Dim cellVal As String
             cellVal = Trim(fields(i))
-            cellVal = Replace(cellVal, ",", ".")
+            ' Замена запятой-разделителя дробной части на точку
+            If i >= 2 Then cellVal = Replace(cellVal, ",", ".")
             If IsNumeric(cellVal) Then
                 wsData.Cells(rowNum, i + 1).Value = CDbl(cellVal)
             ElseIf IsDate(cellVal) Then
@@ -120,12 +145,15 @@ NextLine:
     Loop
     Close #fileNum
 
-    wsData.Columns(1).NumberFormat = "dd.mm.yyyy hh:mm:ss"
-    wsData.Columns(2).Resize(, 8).NumberFormat = "0.00"
+    ' Форматирование: дата, время, числа
+    wsData.Columns(1).NumberFormat = "dd.mm.yyyy"
+    wsData.Columns(2).NumberFormat = "hh:mm:ss"
+    wsData.Columns(4).Resize(, 8).NumberFormat = "0.00"
+    wsData.Columns(18).NumberFormat = "0.0000"
     wsData.Rows(1).Font.Bold = True
     wsData.Rows(1).Interior.Color = RGB(15, 40, 65)
     wsData.Rows(1).Font.Color = RGB(0, 180, 220)
-    wsData.Columns(1).Resize(, 9).AutoFit
+    wsData.Columns(1).Resize(, 18).AutoFit
 End Sub
 
 '-------------------------------------------------------------
@@ -202,8 +230,10 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Dim durationMin As Double
     Dim peakReached As Boolean
 
-    Const COL_TIME As Integer = 1
-    Const COL_TEMP_PROD As Integer = 5
+    Const COL_DATE As Integer = 1      ' Столбец A — Дата
+    Const COL_TIME As Integer = 2      ' Столбец B — Время
+    Const COL_TEMP_PROD As Integer = 5 ' Столбец E — Температура продукта
+    Const COL_F0 As Integer = 18       ' Столбец R — накопленный F0
 
     cycleNum = 0
     inCycle = False
@@ -236,7 +266,17 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     tMax = tempProd
                     tMin = tempProd
                     peakReached = False
-                    cycleStartTime = wsData.Cells(i, COL_TIME).Value
+                    ' Сохраняем дату+время начала цикла как одно число
+                    Dim dv As Variant, tv As Variant
+                    dv = wsData.Cells(i, COL_DATE).Value
+                    tv = wsData.Cells(i, COL_TIME).Value
+                    If IsNumeric(dv) And IsNumeric(tv) Then
+                        cycleStartTime = CDbl(dv) + CDbl(tv)
+                    ElseIf IsDate(dv) And IsDate(tv) Then
+                        cycleStartTime = CDbl(CDate(dv)) + CDbl(CDate(tv))
+                    Else
+                        cycleStartTime = 0
+                    End If
                 End If
             End If
         Else
@@ -248,15 +288,19 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 Dim lethality As Double
                 lethality = 10 ^ ((tempProd - T_REF) / Z_FACTOR)
 
+                ' Вычисляем Δt в минутах из столбцов A (дата) + B (время)
                 Dim deltaT As Double
                 deltaT = 1
                 If i > cycleStart Then
+                    Dim d1 As Variant, d2 As Variant
                     Dim t1 As Variant, t2 As Variant
+                    d1 = wsData.Cells(i - 1, COL_DATE).Value
                     t1 = wsData.Cells(i - 1, COL_TIME).Value
+                    d2 = wsData.Cells(i, COL_DATE).Value
                     t2 = wsData.Cells(i, COL_TIME).Value
-                    If IsNumeric(t1) And IsNumeric(t2) Then
+                    If IsNumeric(d1) And IsNumeric(t1) And IsNumeric(d2) And IsNumeric(t2) Then
                         Dim dt As Double
-                        dt = (CDbl(t2) - CDbl(t1)) * 24 * 60
+                        dt = ((CDbl(d2) + CDbl(t2)) - (CDbl(d1) + CDbl(t1))) * 24 * 60
                         If dt > 0 And dt <= 10 Then deltaT = dt
                     End If
                 End If
@@ -264,7 +308,8 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 f0Cycle = f0Cycle + lethality * deltaT
             End If
 
-            wsData.Cells(i, 9).Value = Round(f0Cycle, 4)
+            ' Пишем накопленный F0 в столбец R (18)
+            wsData.Cells(i, COL_F0).Value = Round(f0Cycle, 4)
 
             Dim cycleEnds As Boolean
             cycleEnds = False
@@ -273,10 +318,21 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
             If cycleEnds Then
                 cycleNum = cycleNum + 1
-                cycleEndTime = wsData.Cells(i, COL_TIME).Value
+
+                ' Время конца цикла — дата + время
+                Dim deV As Variant, teV As Variant
+                deV = wsData.Cells(i, COL_DATE).Value
+                teV = wsData.Cells(i, COL_TIME).Value
+                If IsNumeric(deV) And IsNumeric(teV) Then
+                    cycleEndTime = CDbl(deV) + CDbl(teV)
+                ElseIf IsDate(deV) And IsDate(teV) Then
+                    cycleEndTime = CDbl(CDate(deV)) + CDbl(CDate(teV))
+                Else
+                    cycleEndTime = 0
+                End If
 
                 durationMin = 0
-                If IsNumeric(cycleStartTime) And IsNumeric(cycleEndTime) Then
+                If cycleStartTime > 0 And cycleEndTime > 0 Then
                     durationMin = (CDbl(cycleEndTime) - CDbl(cycleStartTime)) * 24 * 60
                 End If
 
@@ -316,6 +372,13 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
                     .Cells(reportRow, 2).NumberFormat = "dd.mm.yyyy hh:mm:ss"
                     .Cells(reportRow, 3).NumberFormat = "dd.mm.yyyy hh:mm:ss"
+                    ' Приводим числовые даты к отображению дата+время
+                    If IsNumeric(.Cells(reportRow, 2).Value) Then
+                        .Cells(reportRow, 2).Value = CDate(.Cells(reportRow, 2).Value)
+                    End If
+                    If IsNumeric(.Cells(reportRow, 3).Value) Then
+                        .Cells(reportRow, 3).Value = CDate(.Cells(reportRow, 3).Value)
+                    End If
                     .Cells(reportRow, 7).NumberFormat = "0.0000"
                     .Cells(reportRow, 8).Font.Color = resultColor
                     .Cells(reportRow, 8).Font.Bold = True
@@ -424,10 +487,11 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long)
     Dim cht As Chart
     Set cht = co.Chart
 
+    ' Температура продукта = столбец 5 (E), F0 накопл. = столбец 18 (R)
     Dim rngTemp As Range
     Set rngTemp = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5))
     Dim rngF0 As Range
-    Set rngF0 = wsData.Range(wsData.Cells(2, 9), wsData.Cells(lastRow, 9))
+    Set rngF0 = wsData.Range(wsData.Cells(2, 18), wsData.Cells(lastRow, 18))
 
     cht.ChartType = xlLine
     Do While cht.SeriesCollection.Count > 0
@@ -629,6 +693,18 @@ export default function Index() {
                   val: "≥ 6 мин",
                   desc: "Норма стерилизации",
                   c: "#22c55e",
+                },
+                {
+                  key: "COL_TEMP_PROD",
+                  val: "Col E (5)",
+                  desc: "Температура продукта в CSV",
+                  c: "#0ab4dc",
+                },
+                {
+                  key: "COL_F0_OUT",
+                  val: "Col R (18)",
+                  desc: "Запись накопленного F0",
+                  c: "#f97316",
                 },
               ].map((p) => (
                 <div
@@ -875,6 +951,59 @@ export default function Index() {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Маппинг столбцов CSV */}
+        <div className="rounded border border-[#142030] bg-[#080f1c] p-5">
+          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#142030]">
+            <Icon name="Columns" size={14} className="text-[#a78bfa]" />
+            <span className="text-xs font-semibold text-[#a0c0d4] uppercase tracking-wider">
+              Структура CSV — маппинг столбцов
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {[
+              { col: "A (1)", name: "ДАТА", note: "Дата записи", key: true },
+              { col: "B (2)", name: "ВРЕМЯ", note: "Время записи", key: true },
+              { col: "C (3)", name: "МИЛЛИСЕКУНДЫ", note: "", key: false },
+              { col: "D (4)", name: "ТЕМП. СРЕДЫ", note: "", key: false },
+              { col: "E (5)", name: "ТЕМП. ПРОДУКТА", note: "← для расчёта F0", key: true },
+              { col: "F (6)", name: "ДАВЛЕНИЕ", note: "", key: false },
+              { col: "G (7)", name: "УРОВЕНЬ ВОДЫ", note: "", key: false },
+              { col: "H (8)", name: "Q recirculación", note: "", key: false },
+              { col: "I (9)", name: "ДАВЛ. ВОЗДУХА", note: "", key: false },
+              { col: "J (10)", name: "SP presión", note: "", key: false },
+              { col: "K (11)", name: "ЗАД. ТЕМП.", note: "", key: false },
+              { col: "L (12)", name: "КЛ. ДАВЛ. +", note: "", key: false },
+              { col: "M (13)", name: "КЛ. ДАВЛ. −", note: "", key: false },
+              { col: "N (14)", name: "КЛ. НАГРЕВА", note: "", key: false },
+              { col: "O (15)", name: "КЛ. ОХЛАЖД.", note: "", key: false },
+              { col: "P (16)", name: "КЛ. ЗАПОЛН.", note: "", key: false },
+              { col: "Q (17)", name: "НОМ. ЗАМЕСА", note: "", key: false },
+              { col: "R (18)", name: "F0_накоп.", note: "← добавляет макрос", key: true },
+            ].map((s) => (
+              <div
+                key={s.col}
+                className={`flex items-start gap-2 p-2.5 rounded-sm border ${
+                  s.key
+                    ? "border-[#0ab4dc]/30 bg-[#04121e]"
+                    : "border-[#142030] bg-[#04090f]"
+                }`}
+              >
+                <span className={`text-[10px] font-['IBM_Plex_Mono'] font-bold shrink-0 ${s.key ? "text-[#0ab4dc]" : "text-[#2a4060]"}`}>
+                  {s.col}
+                </span>
+                <div>
+                  <div className={`text-[10px] font-semibold leading-tight ${s.key ? "text-[#80b8d0]" : "text-[#3a5870]"}`}>
+                    {s.name}
+                  </div>
+                  {s.note && (
+                    <div className="text-[9px] text-[#0ab4dc]/60 mt-0.5">{s.note}</div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
