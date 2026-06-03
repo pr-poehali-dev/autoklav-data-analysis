@@ -52,25 +52,84 @@ Sub Autoclave_ProcessCSV()
     Call ImportAndParseCSV(wb, filePath, wsData)
 
     ' ----------------------------------------------------------------
-    ' Проверяем: не начинается ли файл с T > 40 при времени ~00:00?
-    ' Это признак того, что замес начался в предыдущих сутках
+    ' ПРОВЕРКА 1: замес начался в ПРЕДЫДУЩИХ сутках?
+    ' (файл начинается с T > 40°C при времени ~00:00)
     ' ----------------------------------------------------------------
     Dim prevFilePath As String
     prevFilePath = ""
 
     If NeedsPreviousFile(wsData) Then
         Application.ScreenUpdating = True
+
+        ' Подсказываем имя предыдущего файла (дата −1 день)
+        Dim suggestPrev As String
+        suggestPrev = GetNeighborFileName(csvFileName, -1)
+        Dim hintPrev As String
+        If suggestPrev <> "" Then
+            hintPrev = Chr(13) & Chr(13) & "РЕКОМЕНДУЕМЫЙ ФАЙЛ:  " & suggestPrev
+            If Len(Dir(csvFolder & suggestPrev)) > 0 Then
+                hintPrev = hintPrev & Chr(13) & "(найден в этой папке)"
+            Else
+                hintPrev = hintPrev & Chr(13) & "(в папке не найден — выберите вручную)"
+            End If
+        End If
+
         Dim ans As Integer
         ans = MsgBox("Данные начинаются при температуре продукта > 40°C в начале суток." & Chr(13) & _
-                     "Похоже, замес начался в предыдущем файле." & Chr(13) & Chr(13) & _
+                     "Похоже, замес начался в ПРЕДЫДУЩЕМ файле." & hintPrev & Chr(13) & Chr(13) & _
                      "Загрузить предыдущий CSV-файл для корректного расчёта F0 и времени цикла?", _
-                     vbYesNo + vbQuestion, "Переход суток — нужен предыдущий файл?")
+                     vbYesNo + vbQuestion, "Переход суток — нужен ПРЕДЫДУЩИЙ файл")
 
         If ans = vbYes Then
+            ' Если рекомендуемый файл найден — предлагаем сразу его
+            Dim defPrevPath As String
+            defPrevPath = ""
+            If suggestPrev <> "" And Len(Dir(csvFolder & suggestPrev)) > 0 Then
+                defPrevPath = csvFolder & suggestPrev
+            End If
+
             prevFilePath = Application.GetOpenFilename( _
                 FileFilter:="CSV Files (*.csv),*.csv,All Files (*.*),*.*", _
-                Title:="Выберите ПРЕДЫДУЩИЙ CSV-файл (предыдущие сутки)")
+                Title:="Выберите ПРЕДЫДУЩИЙ файл: " & suggestPrev)
             If prevFilePath = "False" Then prevFilePath = ""
+        End If
+        Application.ScreenUpdating = False
+    End If
+
+    ' ----------------------------------------------------------------
+    ' ПРОВЕРКА 2: замес уходит в СЛЕДУЮЩИЕ сутки?
+    ' (файл заканчивается T > 40°C при времени ~23:59)
+    ' ----------------------------------------------------------------
+    Dim nextFilePath As String
+    nextFilePath = ""
+
+    If NeedsNextFile(wsData) Then
+        Application.ScreenUpdating = True
+
+        ' Подсказываем имя следующего файла (дата +1 день)
+        Dim suggestNext As String
+        suggestNext = GetNeighborFileName(csvFileName, 1)
+        Dim hintNext As String
+        If suggestNext <> "" Then
+            hintNext = Chr(13) & Chr(13) & "РЕКОМЕНДУЕМЫЙ ФАЙЛ:  " & suggestNext
+            If Len(Dir(csvFolder & suggestNext)) > 0 Then
+                hintNext = hintNext & Chr(13) & "(найден в этой папке)"
+            Else
+                hintNext = hintNext & Chr(13) & "(в папке не найден — выберите вручную)"
+            End If
+        End If
+
+        Dim ansN As Integer
+        ansN = MsgBox("Данные заканчиваются при температуре продукта > 40°C в конце суток." & Chr(13) & _
+                     "Похоже, замес продолжается в СЛЕДУЮЩЕМ файле." & hintNext & Chr(13) & Chr(13) & _
+                     "Загрузить следующий CSV-файл для корректного расчёта F0?", _
+                     vbYesNo + vbQuestion, "Переход суток — нужен СЛЕДУЮЩИЙ файл")
+
+        If ansN = vbYes Then
+            nextFilePath = Application.GetOpenFilename( _
+                FileFilter:="CSV Files (*.csv),*.csv,All Files (*.*),*.*", _
+                Title:="Выберите СЛЕДУЮЩИЙ файл: " & suggestNext)
+            If nextFilePath = "False" Then nextFilePath = ""
         End If
         Application.ScreenUpdating = False
     End If
@@ -80,10 +139,19 @@ Sub Autoclave_ProcessCSV()
     ' ----------------------------------------------------------------
     If prevFilePath <> "" Then
         Call PrependPreviousCSV(wb, wsData, prevFilePath)
-        ' Имя файла включает оба для прозрачности
         Dim prevName As String
         prevName = Mid(prevFilePath, InStrRev(prevFilePath, "\\") + 1)
         csvFileName = prevName & " + " & csvFileName
+    End If
+
+    ' ----------------------------------------------------------------
+    ' Если выбран следующий файл — дописываем его данные ПОСЛЕ основных
+    ' ----------------------------------------------------------------
+    If nextFilePath <> "" Then
+        Call AppendNextCSV(wb, wsData, nextFilePath)
+        Dim nextName As String
+        nextName = Mid(nextFilePath, InStrRev(nextFilePath, "\\") + 1)
+        csvFileName = csvFileName & " + " & nextName
     End If
 
     Call PrepareReportSheet(wb, wsReport, csvFileName)
@@ -192,6 +260,124 @@ Function NeedsPreviousFile(wsData As Worksheet) As Boolean
         End If
 NextCheck:
     Next r
+End Function
+
+'-------------------------------------------------------------
+' Проверяет: заканчивается ли файл "горячей" температурой в ~23:59
+' Признак того, что замес продолжается в СЛЕДУЮЩЕМ файле (следующие сутки)
+'-------------------------------------------------------------
+Function NeedsNextFile(wsData As Worksheet) As Boolean
+    NeedsNextFile = False
+    Dim lastR As Long
+    lastR = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+    If lastR < 3 Then Exit Function
+
+    ' Смотрим последние 10 строк данных
+    Dim r As Long
+    Dim startR As Long
+    startR = lastR - 10
+    If startR < 2 Then startR = 2
+
+    For r = lastR To startR Step -1
+        Dim tVal As Variant
+        tVal = wsData.Cells(r, 5).Value  ' столбец E — температура продукта
+        If Not IsNumeric(tVal) Then GoTo NextCheck2
+
+        Dim tempCheck As Double
+        tempCheck = CDbl(tVal)
+
+        Dim timeRaw As Variant
+        timeRaw = wsData.Cells(r, 2).Value
+        Dim timeDbl As Double
+        timeDbl = 0
+        If IsNumeric(timeRaw) Then
+            timeDbl = CDbl(timeRaw)
+        ElseIf InStr(CStr(timeRaw), ":") > 0 Then
+            On Error Resume Next
+            timeDbl = CDbl(TimeValue(Trim(CStr(timeRaw))))
+            On Error GoTo 0
+        End If
+
+        ' Время после 23:55 (> 0.9965 в дробях Excel) и температура горячая
+        If tempCheck > 40 And timeDbl > 0.9965 Then
+            NeedsNextFile = True
+            Exit Function
+        End If
+NextCheck2:
+    Next r
+End Function
+
+'-------------------------------------------------------------
+' Вычисляет имя соседнего файла по дате (±1 день).
+' Имена файлов в формате YYYYMMDD.csv (напр. 20260520.csv).
+' offsetDays = -1 для предыдущего, +1 для следующего.
+' Возвращает имя файла или "" если не удалось распознать.
+'-------------------------------------------------------------
+Function GetNeighborFileName(currentFileName As String, offsetDays As Integer) As String
+    GetNeighborFileName = ""
+
+    ' Отделяем имя без расширения
+    Dim baseName As String
+    Dim ext As String
+    Dim dotPos As Integer
+    dotPos = InStrRev(currentFileName, ".")
+    If dotPos > 0 Then
+        baseName = Left(currentFileName, dotPos - 1)
+        ext = Mid(currentFileName, dotPos)  ' включая точку
+    Else
+        baseName = currentFileName
+        ext = ".csv"
+    End If
+
+    ' Ищем в имени 8 цифр подряд = дата YYYYMMDD
+    Dim i As Integer
+    Dim digits As String
+    digits = ""
+    Dim datePos As Integer
+    datePos = 0
+    For i = 1 To Len(baseName)
+        Dim ch As String
+        ch = Mid(baseName, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            digits = digits & ch
+            If Len(digits) = 8 Then
+                datePos = i - 7
+                Exit For
+            End If
+        Else
+            digits = ""
+        End If
+    Next i
+
+    If Len(digits) <> 8 Then Exit Function  ' дата не найдена
+
+    ' Парсим YYYYMMDD
+    Dim yr As Integer, mo As Integer, dy As Integer
+    yr = CInt(Left(digits, 4))
+    mo = CInt(Mid(digits, 5, 2))
+    dy = CInt(Mid(digits, 7, 2))
+
+    On Error GoTo BadDate
+    Dim baseDate As Date
+    baseDate = DateSerial(yr, mo, dy)
+    Dim newDate As Date
+    newDate = baseDate + offsetDays
+
+    ' Формируем новую дату YYYYMMDD
+    Dim newDigits As String
+    newDigits = Format(Year(newDate), "0000") & _
+                Format(Month(newDate), "00") & _
+                Format(Day(newDate), "00")
+
+    ' Подставляем обратно в имя
+    Dim prefix As String, suffix As String
+    prefix = Left(baseName, datePos - 1)
+    suffix = Mid(baseName, datePos + 8)
+
+    GetNeighborFileName = prefix & newDigits & suffix & ext
+    Exit Function
+BadDate:
+    GetNeighborFileName = ""
 End Function
 
 '-------------------------------------------------------------
@@ -324,6 +510,124 @@ SkipLine:
     Next pi
 
     ' Форматируем добавленные строки
+    wsData.Columns(1).NumberFormat = "dd.mm.yyyy"
+    wsData.Columns(2).NumberFormat = "hh:mm:ss"
+End Sub
+
+'-------------------------------------------------------------
+' Дописывает данные следующего CSV В КОНЕЦ листа Data (после основных)
+' Дата следующего файла на сутки позже — замес продолжается в нём
+'-------------------------------------------------------------
+Sub AppendNextCSV(wb As Workbook, wsData As Worksheet, nextFilePath As String)
+    Dim fileNum As Integer
+    Dim lineText As String
+    Dim nextRows() As String
+    Dim nextCount As Long
+    nextCount = 0
+
+    fileNum = FreeFile
+    Open nextFilePath For Input As #fileNum
+    ReDim nextRows(1 To 50000)
+
+    Do While Not EOF(fileNum)
+        Line Input #fileNum, lineText
+        lineText = Trim(lineText)
+        If Len(lineText) = 0 Then GoTo SkipLine2
+        If Left(lineText, 1) = "#" Then GoTo SkipLine2
+        nextCount = nextCount + 1
+        nextRows(nextCount) = lineText
+SkipLine2:
+    Loop
+    Close #fileNum
+
+    If nextCount = 0 Then Exit Sub
+
+    ' Определяем с какой строки начинать (пропускаем заголовок CSV)
+    Dim startIdx As Long
+    startIdx = 1
+    Dim firstFields() As String
+    If InStr(nextRows(1), ";") > 0 Then
+        firstFields = Split(nextRows(1), ";")
+    Else
+        firstFields = Split(nextRows(1), ",")
+    End If
+    Dim fp As String
+    fp = Trim(firstFields(0))
+    If Len(fp) >= 2 And Left(fp, 1) = Chr(34) Then fp = Mid(fp, 2, Len(fp) - 2)
+    If Not (fp Like "####/##/##") And Not IsDate(fp) Then startIdx = 2
+
+    ' Пишем данные в конец листа Data
+    Dim writeRow As Long
+    writeRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row + 1
+
+    Dim pi As Long
+    Dim pFields() As String
+    Dim pk As Integer
+
+    For pi = startIdx To nextCount
+        lineText = nextRows(pi)
+        If InStr(lineText, ";") > 0 Then
+            pFields = Split(lineText, ";")
+        Else
+            pFields = Split(lineText, ",")
+        End If
+
+        For pk = 0 To UBound(pFields)
+            pFields(pk) = Trim(pFields(pk))
+            If Len(pFields(pk)) >= 2 Then
+                If Left(pFields(pk), 1) = Chr(34) And Right(pFields(pk), 1) = Chr(34) Then
+                    pFields(pk) = Mid(pFields(pk), 2, Len(pFields(pk)) - 2)
+                End If
+            End If
+        Next pk
+
+        Dim pTotalCols As Integer
+        pTotalCols = UBound(pFields) + 1
+        If pTotalCols > 17 Then pTotalCols = 17
+
+        Dim pi2 As Integer
+        For pi2 = 0 To pTotalCols - 1
+            Dim pCell As String
+            pCell = Trim(pFields(pi2))
+
+            Select Case pi2
+                Case 0 ' Дата YYYY/MM/DD
+                    If InStr(pCell, "/") > 0 Then
+                        Dim dp() As String
+                        dp = Split(pCell, "/")
+                        If UBound(dp) = 2 Then
+                            wsData.Cells(writeRow, 1).Value = DateSerial(CInt(dp(0)), CInt(dp(1)), CInt(dp(2)))
+                        Else
+                            wsData.Cells(writeRow, 1).Value = pCell
+                        End If
+                    ElseIf IsDate(pCell) Then
+                        wsData.Cells(writeRow, 1).Value = CDate(pCell)
+                    Else
+                        wsData.Cells(writeRow, 1).Value = pCell
+                    End If
+
+                Case 1 ' Время HH:MM:SS
+                    If InStr(pCell, ":") > 0 Then
+                        On Error Resume Next
+                        wsData.Cells(writeRow, 2).Value = TimeValue(pCell)
+                        On Error GoTo 0
+                    Else
+                        wsData.Cells(writeRow, 2).Value = pCell
+                    End If
+
+                Case Else
+                    pCell = Replace(pCell, ",", ".")
+                    If IsNumeric(pCell) Then
+                        wsData.Cells(writeRow, pi2 + 1).Value = CDbl(pCell)
+                    Else
+                        wsData.Cells(writeRow, pi2 + 1).Value = pCell
+                    End If
+            End Select
+        Next pi2
+
+        writeRow = writeRow + 1
+    Next pi
+
     wsData.Columns(1).NumberFormat = "dd.mm.yyyy"
     wsData.Columns(2).NumberFormat = "hh:mm:ss"
 End Sub
