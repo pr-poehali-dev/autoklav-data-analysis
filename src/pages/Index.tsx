@@ -88,37 +88,58 @@ Sub Autoclave_ProcessCSV()
     Call BuildTemperatureChart(wb, wsData, lastRow, csvFileName)
 
     ' ----------------------------------------------------------------
-    ' Сохраняем результат в отдельный .xlsm с именем основного файла
+    ' Сохраняем только нужные листы (Data, F0_Report, График) в новый .xlsm
     ' ----------------------------------------------------------------
     Dim saveName As String
-    Dim saveExt As String
-    saveExt = ".xlsm"
-    ' Убираем расширение .csv из имени
     saveName = csvFileName
-    If LCase(Right(saveName, 4)) = ".csv" Then
-        saveName = Left(saveName, Len(saveName) - 4)
-    End If
-    ' Убираем недопустимые символы для имени файла
-    saveName = Replace(saveName, "+", "_")
-    saveName = Replace(saveName, " ", "_")
+    If LCase(Right(saveName, 4)) = ".csv" Then saveName = Left(saveName, Len(saveName) - 4)
+    saveName = Replace(Replace(saveName, "+", "_"), " ", "_")
 
     Dim savePath As String
-    savePath = csvFolder & saveName & saveExt
+    savePath = csvFolder & saveName & ".xlsm"
 
     Application.Calculation = xlCalculationAutomatic
     Application.ScreenUpdating = True
 
-    ' Сохраняем копию как xlsm
-    On Error Resume Next
-    wb.SaveCopyAs savePath
-    On Error GoTo 0
-
+    ' Копируем три листа в новую книгу
     Dim savedMsg As String
-    If Len(Dir(savePath)) > 0 Then
-        savedMsg = Chr(13) & Chr(13) & "Файл сохранён:" & Chr(13) & savePath
+    On Error Resume Next
+    Dim wbNew As Workbook
+
+    ' Собираем листы для копирования
+    Dim sheetsToCopy(2) As String
+    sheetsToCopy(0) = "Data"
+    sheetsToCopy(1) = "F0_Report"
+    sheetsToCopy(2) = "График"
+
+    ' Проверяем что все листы существуют
+    Dim allExist As Boolean
+    allExist = True
+    Dim si As Integer
+    For si = 0 To 2
+        If Not SheetExistsInWb(wb, sheetsToCopy(si)) Then allExist = False
+    Next si
+
+    If allExist Then
+        ' Копируем все три листа вместе в новую книгу
+        wb.Sheets(Array("Data", "F0_Report", "График")).Copy
+        Set wbNew = ActiveWorkbook
+
+        ' Сохраняем новую книгу как xlsm
+        Application.DisplayAlerts = False
+        wbNew.SaveAs Filename:=savePath, FileFormat:=xlOpenXMLWorkbookMacroEnabled
+        Application.DisplayAlerts = True
+        wbNew.Close SaveChanges:=False
+
+        If Len(Dir(savePath)) > 0 Then
+            savedMsg = Chr(13) & Chr(13) & "Файл сохранён:" & Chr(13) & savePath
+        Else
+            savedMsg = Chr(13) & Chr(13) & "Не удалось сохранить — проверьте права на папку."
+        End If
     Else
-        savedMsg = Chr(13) & Chr(13) & "Не удалось сохранить файл — проверьте права на папку."
+        savedMsg = Chr(13) & Chr(13) & "Не все листы созданы — сохранение пропущено."
     End If
+    On Error GoTo 0
 
     MsgBox "Расчёт завершён! Результаты на листе 'F0_Report'." & savedMsg, _
            vbInformation, "Автоклав F0 — Готово"
@@ -576,13 +597,19 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 tMin = 999  ' сбросим — будет обновлён только в зоне >= T_MIN_STERIL
                 peakReached = False
 
-                ' Считываем Tref из столбца K (ЗАДАННАЯ ТЕМПЕРАТУРА)
+                ' Считываем Tref из столбца K — только диапазон 100..130°C
                 Dim trefRaw As Variant
                 trefRaw = wsData.Cells(i, COL_TREF).Value
-                If IsNumeric(trefRaw) And CDbl(trefRaw) > 50 Then
-                    tRefCycle = CDbl(trefRaw)
+                If IsNumeric(trefRaw) Then
+                    Dim trefVal As Double
+                    trefVal = CDbl(trefRaw)
+                    If trefVal >= 100# And trefVal <= 130# Then
+                        tRefCycle = trefVal
+                    Else
+                        tRefCycle = T_REF  ' не похоже на температуру — берём 121.1C
+                    End If
                 Else
-                    tRefCycle = T_REF  ' fallback 121.1C
+                    tRefCycle = T_REF
                 End If
 
                 ' Сохраняем дату+время начала цикла
@@ -600,11 +627,16 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             ' tMin считается ТОЛЬКО в зоне стерилизации — см. ниже внутри If tempProd >= T_MIN_STERIL
             If tMax >= T_MIN_STERIL Then peakReached = True
 
-            ' Обновляем Tref внутри цикла — заданная температура может меняться
+            ' Обновляем Tref — только если значение в диапазоне реальных температур стерилизации
             Dim trefUpdRaw As Variant
             trefUpdRaw = wsData.Cells(i, COL_TREF).Value
-            If IsNumeric(trefUpdRaw) And CDbl(trefUpdRaw) > 50 Then
-                tRefCycle = CDbl(trefUpdRaw)
+            If IsNumeric(trefUpdRaw) Then
+                Dim trefUpd As Double
+                trefUpd = CDbl(trefUpdRaw)
+                ' Принимаем только реальные температуры автоклава: 100..130°C
+                If trefUpd >= 100# And trefUpd <= 130# Then
+                    tRefCycle = trefUpd
+                End If
             End If
 
             If tempProd >= T_MIN_STERIL Then
@@ -615,75 +647,66 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 lethality = 10 ^ ((tempProd - tRefCycle) / Z_FACTOR)
 
                 ' --------------------------------------------------
-                ' Вычисляем Δt в минутах — метод трапеций по Бигелоу
-                ' Источники в порядке приоритета:
-                '   1. Дата+Время (столбцы A+B) — числа Excel
-                '   2. Время как строка HH:MM:SS (столбец B)
-                '   3. Абсолютные миллисекунды суток (столбец C, если > 1000)
-                '   4. НЕ используем deltaT=1 — слишком опасно для точности
+                ' Вычисляем Δt в секундах, затем переводим в минуты
+                ' Единственный надёжный источник — столбец C (миллисекунды записи).
+                ' Это АБСОЛЮТНЫЕ миллисекунды от начала суток (0..86400000).
+                ' Дата из столбца A добавляет смещение при переходе суток.
                 ' --------------------------------------------------
                 Dim deltaT As Double
                 deltaT = 0
+
                 If i > cycleStart Then
-                    ' Способ 1: числа Excel дата+время
-                    Dim d1 As Variant, d2 As Variant
-                    Dim t1v As Variant, t2v As Variant
-                    d1  = wsData.Cells(i - 1, COL_DATE).Value
-                    t1v = wsData.Cells(i - 1, COL_TIME).Value
-                    d2  = wsData.Cells(i, COL_DATE).Value
-                    t2v = wsData.Cells(i, COL_TIME).Value
+                    Dim ms1 As Variant, ms2 As Variant
+                    ms1 = wsData.Cells(i - 1, 3).Value  ' столбец C предыд. строки
+                    ms2 = wsData.Cells(i, 3).Value       ' столбец C текущей строки
 
-                    If IsNumeric(d1) And IsNumeric(t1v) And IsNumeric(d2) And IsNumeric(t2v) Then
-                        Dim dt As Double
-                        dt = ((CDbl(d2) + CDbl(t2v)) - (CDbl(d1) + CDbl(t1v))) * 24# * 60#
-                        If dt > 0# And dt < 60# Then deltaT = dt
-                    End If
+                    If IsNumeric(ms1) And IsNumeric(ms2) Then
+                        Dim msV1 As Double, msV2 As Double
+                        msV1 = CDbl(ms1)
+                        msV2 = CDbl(ms2)
 
-                    ' Способ 2: время как строка HH:MM:SS
-                    If deltaT = 0 Then
-                        Dim ts1 As String, ts2 As String
-                        ts1 = Trim(CStr(t1v))
-                        ts2 = Trim(CStr(t2v))
-                        If Left(ts1, 1) = Chr(34) Then ts1 = Mid(ts1, 2, Len(ts1) - 2)
-                        If Left(ts2, 1) = Chr(34) Then ts2 = Mid(ts2, 2, Len(ts2) - 2)
-                        If InStr(ts1, ":") > 0 And InStr(ts2, ":") > 0 Then
-                            On Error Resume Next
-                            Dim tv1Dbl As Double, tv2Dbl As Double
-                            tv1Dbl = CDbl(TimeValue(ts1))
-                            tv2Dbl = CDbl(TimeValue(ts2))
-                            If Err.Number = 0 Then
-                                ' Учитываем переход через полночь
-                                Dim tdiff As Double
-                                tdiff = tv2Dbl - tv1Dbl
-                                If tdiff < 0 Then tdiff = tdiff + 1  ' переход суток
-                                ' Добавляем разницу дат (если сменились сутки)
-                                If IsNumeric(d1) And IsNumeric(d2) Then
-                                    tdiff = tdiff + (CLng(CDbl(d2)) - CLng(CDbl(d1)))
-                                End If
-                                dt = tdiff * 24# * 60#
-                                If dt > 0# And dt < 60# Then deltaT = dt
+                        Dim msDiffSec As Double
+                        msDiffSec = (msV2 - msV1) / 1000#  ' → секунды
+
+                        ' Переход суток: msV2 < msV1 → добавляем 86400 секунд
+                        If msDiffSec < 0 Then
+                            ' Проверяем по дате (столбец A)
+                            Dim dA1 As Variant, dA2 As Variant
+                            dA1 = wsData.Cells(i - 1, COL_DATE).Value
+                            dA2 = wsData.Cells(i, COL_DATE).Value
+                            If IsNumeric(dA1) And IsNumeric(dA2) Then
+                                Dim dayDiff As Long
+                                dayDiff = CLng(CDbl(dA2)) - CLng(CDbl(dA1))
+                                msDiffSec = msDiffSec + dayDiff * 86400#
+                            Else
+                                msDiffSec = msDiffSec + 86400#  ' предполагаем +1 сутки
                             End If
-                            On Error GoTo 0
+                        End If
+
+                        ' Разумный диапазон: от 1 секунды до 30 минут
+                        If msDiffSec >= 1# And msDiffSec <= 1800# Then
+                            deltaT = msDiffSec / 60#  ' → минуты
                         End If
                     End If
 
-                    ' Способ 3: абсолютные мс суток (столбец C, значения > 1000)
+                    ' Резерв: если столбец C не помог — берём дату+время (A+B числа Excel)
                     If deltaT = 0 Then
-                        Dim ms1 As Variant, ms2 As Variant
-                        ms1 = wsData.Cells(i - 1, 3).Value
-                        ms2 = wsData.Cells(i, 3).Value
-                        If IsNumeric(ms1) And IsNumeric(ms2) Then
-                            Dim msV1 As Double, msV2 As Double
-                            msV1 = CDbl(ms1) : msV2 = CDbl(ms2)
-                            If msV1 > 1000 And msV2 > msV1 Then
-                                deltaT = (msV2 - msV1) / 1000# / 60#
-                                If deltaT >= 60# Then deltaT = 0  ' явная ошибка
-                            End If
+                        Dim d1 As Variant, d2 As Variant
+                        Dim t1v As Variant, t2v As Variant
+                        d1  = wsData.Cells(i - 1, COL_DATE).Value
+                        t1v = wsData.Cells(i - 1, COL_TIME).Value
+                        d2  = wsData.Cells(i, COL_DATE).Value
+                        t2v = wsData.Cells(i, COL_TIME).Value
+
+                        If IsNumeric(d1) And IsNumeric(t1v) And IsNumeric(d2) And IsNumeric(t2v) Then
+                            Dim dtFull As Double
+                            dtFull = ((CDbl(d2) + CDbl(t2v)) - (CDbl(d1) + CDbl(t1v))) * 24# * 60#
+                            If dtFull > 0.01# And dtFull < 30# Then deltaT = dtFull
                         End If
                     End If
                 End If
 
-                ' Добавляем в F0 только если Δt удалось определить
+                ' Добавляем в F0 только если Δt определён
                 If deltaT > 0 Then
                     f0Cycle = f0Cycle + lethality * deltaT
                 End If
@@ -877,90 +900,113 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim cht As Chart
     Set cht = co.Chart
 
-    ' Температура продукта = столбец 5 (E), F0 накопл. = столбец 18 (R)
-    Dim rngTemp As Range
-    Set rngTemp = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5))
+    ' Столбцы: D(4)=темп.среды, E(5)=темп.продукта, R(18)=F0
+    Dim rngTempEnv As Range   ' температура среды (жёлтая)
+    Dim rngTempProd As Range  ' температура продукта (бирюзовая)
     Dim rngF0 As Range
-    Set rngF0 = wsData.Range(wsData.Cells(2, 18), wsData.Cells(lastRow, 18))
+    Set rngTempEnv  = wsData.Range(wsData.Cells(2, 4), wsData.Cells(lastRow, 4))
+    Set rngTempProd = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5))
+    Set rngF0       = wsData.Range(wsData.Cells(2, 18), wsData.Cells(lastRow, 18))
 
     cht.ChartType = xlLine
     Do While cht.SeriesCollection.Count > 0
         cht.SeriesCollection(1).Delete
     Loop
 
+    ' --- Линия 1: Температура продукта — бирюзовая (как на оригинале) ---
     Dim s1 As Series
     Set s1 = cht.SeriesCollection.NewSeries
-    s1.Name = "T продукта (C)"
-    s1.Values = rngTemp
-    s1.Format.Line.ForeColor.RGB = RGB(0, 180, 220)
-    s1.Format.Line.Weight = 2
+    s1.Name = "T° продукта"
+    s1.Values = rngTempProd
+    s1.Format.Line.ForeColor.RGB = RGB(0, 210, 200)   ' бирюзовый
+    s1.Format.Line.Weight = 2.5
+    s1.MarkerStyle = xlMarkerStyleNone
     s1.AxisGroup = xlPrimary
 
+    ' --- Линия 2: Температура среды (автоклав) — жёлтая ---
     Dim s2 As Series
     Set s2 = cht.SeriesCollection.NewSeries
-    s2.Name = "F0 накопл. (мин)"
-    s2.Values = rngF0
-    s2.Format.Line.ForeColor.RGB = RGB(255, 165, 0)
-    s2.Format.Line.Weight = 2.5
-    s2.AxisGroup = xlSecondary
+    s2.Name = "Температура"
+    s2.Values = rngTempEnv
+    s2.Format.Line.ForeColor.RGB = RGB(255, 220, 0)   ' жёлтый
+    s2.Format.Line.Weight = 2
+    s2.MarkerStyle = xlMarkerStyleNone
+    s2.AxisGroup = xlPrimary
 
-    ' Линия Tref — берём первое значение из столбца K (заданная температура)
-    Dim tRefChart As Double
-    tRefChart = T_REF
-    Dim trefFirstRaw As Variant
-    trefFirstRaw = wsData.Cells(2, 11).Value
-    If IsNumeric(trefFirstRaw) And CDbl(trefFirstRaw) > 50 Then
-        tRefChart = CDbl(trefFirstRaw)
-    End If
-
+    ' --- Линия 3: F0 накопленный — оранжевая, вторая ось ---
     Dim s3 As Series
     Set s3 = cht.SeriesCollection.NewSeries
-    s3.Name = "Tref = " & Format(tRefChart, "0.#") & "C"
+    s3.Name = "F0 накопл. (мин)"
+    s3.Values = rngF0
+    s3.Format.Line.ForeColor.RGB = RGB(255, 120, 0)
+    s3.Format.Line.Weight = 2
+    s3.MarkerStyle = xlMarkerStyleNone
+    s3.AxisGroup = xlSecondary
+
+    ' --- Линия 4: Tref — красная пунктирная ---
+    Dim tRefChart As Double
+    tRefChart = T_REF
+    Dim trefChkRaw As Variant
+    trefChkRaw = wsData.Cells(2, 11).Value
+    If IsNumeric(trefChkRaw) Then
+        Dim trcV As Double
+        trcV = CDbl(trefChkRaw)
+        If trcV >= 100# And trcV <= 130# Then tRefChart = trcV
+    End If
+
+    Dim s4 As Series
+    Set s4 = cht.SeriesCollection.NewSeries
+    s4.Name = "Tref=" & Format(tRefChart, "0") & "C"
     Dim trefArr() As Double
     ReDim trefArr(1 To lastRow - 1)
     Dim j As Long
     For j = 1 To lastRow - 1
         trefArr(j) = tRefChart
     Next j
-    s3.Values = trefArr
-    s3.Format.Line.ForeColor.RGB = RGB(200, 40, 40)
-    s3.Format.Line.DashStyle = msoLineDash
-    s3.Format.Line.Weight = 1.5
-    s3.AxisGroup = xlPrimary
+    s4.Values = trefArr
+    s4.Format.Line.ForeColor.RGB = RGB(255, 80, 80)
+    s4.Format.Line.DashStyle = msoLineDash
+    s4.Format.Line.Weight = 1.5
+    s4.MarkerStyle = xlMarkerStyleNone
+    s4.AxisGroup = xlPrimary
 
     With cht
         .HasTitle = True
-        .ChartTitle.Text = "Температурный профиль: " & csvFileName
+        .ChartTitle.Text = "График температуры продукта и температуры автоклава"
         .ChartTitle.Font.Size = 13
         .ChartTitle.Font.Bold = True
-        .ChartTitle.Font.Color = RGB(30, 30, 30)
+        .ChartTitle.Font.Color = RGB(220, 235, 255)
 
-        ' Белый фон графика
-        .PlotArea.Interior.Color = RGB(248, 250, 252)
-        .PlotArea.Border.LineStyle = xlContinuous
-        .PlotArea.Border.Color = RGB(200, 210, 220)
-        .ChartArea.Interior.Color = RGB(255, 255, 255)
-        .ChartArea.Border.Color = RGB(180, 195, 210)
+        ' Тёмный фон как на оригинале
+        .PlotArea.Interior.Color = RGB(10, 30, 70)
+        .PlotArea.Border.LineStyle = xlNone
+        .ChartArea.Interior.Color = RGB(8, 22, 55)
+        .ChartArea.Border.Color = RGB(30, 60, 120)
 
         With .Axes(xlValue, xlPrimary)
-            .HasTitle = True
-            .AxisTitle.Text = "Температура (°C)"
-            .AxisTitle.Font.Color = RGB(50, 50, 50)
-            .MajorGridlines.Format.Line.DashStyle = msoLineDash
-            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(210, 220, 230)
-            .TickLabels.Font.Color = RGB(60, 60, 60)
+            .HasTitle = False
+            .MinimumScale = 0
+            .MaximumScale = 150
+            .MajorUnit = 25
+            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(40, 70, 130)
+            .MajorGridlines.Format.Line.DashStyle = msoLineSolid
+            .TickLabels.Font.Color = RGB(180, 210, 255)
+            .TickLabels.Font.Size = 9
+            .AxisBetweenCategories = False
         End With
 
+        ' Скрываем вторичную ось (F0 — дополнительная информация)
         With .Axes(xlValue, xlSecondary)
-            .HasTitle = True
-            .AxisTitle.Text = "F0 (мин)"
-            .AxisTitle.Font.Color = RGB(180, 80, 0)
-            .TickLabels.Font.Color = RGB(180, 80, 0)
+            .HasTitle = False
+            .TickLabels.Font.Color = RGB(255, 120, 0)
+            .TickLabels.Font.Size = 8
         End With
 
         .HasLegend = True
-        .Legend.Interior.Color = RGB(255, 255, 255)
-        .Legend.Font.Color = RGB(30, 30, 30)
+        .Legend.Interior.Color = RGB(8, 22, 55)
+        .Legend.Font.Color = RGB(200, 220, 255)
+        .Legend.Font.Size = 9
+        .Legend.Position = xlLegendPositionTop
     End With
 End Sub
 
