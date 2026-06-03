@@ -924,11 +924,20 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Const COL_DATE As Integer = 1
     Const COL_TIME As Integer = 2
     Const COL_TEMP_PROD As Integer = 5
+    Const COL_PRESSURE As Integer = 6   ' F — Давление
+    Const COL_WATER As Integer = 7      ' G — Уровень воды
     Const COL_TREF As Integer = 11
     Const COL_F0 As Integer = 18
 
+    ' Пороги начала/конца цикла по состоянию автоклава
+    Const WATER_ON As Double = 9#       ' Уровень воды для старта цикла
+    Const PRESS_ON As Double = 0.7      ' Давление для старта (>0.7 бар)
+    Const WATER_OFF As Double = 9#      ' Слив воды — конец цикла
+
     ' ================================================================
-    ' ПРОХОД 1: находим границы всех циклов и MAX(K) для каждого
+    ' ПРОХОД 1: находим границы циклов ПО УРОВНЮ ВОДЫ + ДАВЛЕНИЮ
+    '   Старт: вода > 9 И давление > 0.7 (автоклав наполнен и под давлением)
+    '   Конец: вода опустилась < 9 (слив) — программа завершена
     ' ================================================================
     Dim cycleCount As Integer
     cycleCount = 0
@@ -938,46 +947,50 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
     Dim inCyc As Boolean
     Dim cyStart As Long
-    Dim tKmaxP1 As Double
-    Dim peakP1 As Boolean
-    Dim tMaxP1 As Double
-    inCyc = False : tKmaxP1 = 0 : peakP1 = False : tMaxP1 = -999
+    Dim lowCount As Integer  ' счётчик подряд "сухих" строк для надёжного конца
+    inCyc = False : lowCount = 0
 
     Dim p As Long
     For p = 2 To lastRow
-        Dim rv As Variant
-        rv = wsData.Cells(p, COL_TEMP_PROD).Value
-        If Not IsNumeric(rv) Then GoTo P1Next
-        Dim tp As Double
-        tp = CDbl(rv)
+        ' Считываем уровень воды и давление
+        Dim wRv As Variant, prRv As Variant
+        wRv = wsData.Cells(p, COL_WATER).Value
+        prRv = wsData.Cells(p, COL_PRESSURE).Value
+
+        Dim waterLvl As Double, pressLvl As Double
+        waterLvl = IIf(IsNumeric(wRv), CDbl(wRv), 0)
+        pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         If Not inCyc Then
-            If tp >= T_START Then
-                inCyc = True : cyStart = p
-                tKmaxP1 = 0 : peakP1 = False : tMaxP1 = tp
+            ' Старт цикла: вода набрана И есть давление
+            If waterLvl > WATER_ON And pressLvl > PRESS_ON Then
+                inCyc = True
+                cyStart = p
+                lowCount = 0
             End If
         Else
-            If tp > tMaxP1 Then tMaxP1 = tp
-            If tMaxP1 >= T_PEAK_STERIL Then peakP1 = True
-            ' Накапливаем MAX заданной температуры
-            Dim tkRv As Variant
-            tkRv = wsData.Cells(p, COL_TREF).Value
-            If IsNumeric(tkRv) Then
-                Dim tkV As Double : tkV = CDbl(tkRv)
-                If tkV >= 100# And tkV <= 130# And tkV > tKmaxP1 Then tKmaxP1 = tkV
+            ' Конец цикла: вода слита (несколько строк подряд для надёжности)
+            If waterLvl < WATER_OFF Then
+                lowCount = lowCount + 1
+            Else
+                lowCount = 0
             End If
-            ' Конец цикла
+
             Dim cycEnd1 As Boolean
-            cycEnd1 = (peakP1 And tp < T_START) Or (p = lastRow)
+            cycEnd1 = (lowCount >= 3) Or (p = lastRow)
             If cycEnd1 Then
+                ' Конец цикла — на строке где вода ушла (откатываем назад)
+                Dim realEnd As Long
+                realEnd = IIf(lowCount >= 3, p - lowCount + 1, p)
+                If realEnd < cyStart Then realEnd = cyStart
+
                 If cycleCount < 500 Then
                     cycleCount = cycleCount + 1
                     cycleStarts(cycleCount) = cyStart
-                    cycleEnds_(cycleCount) = p
-                    ' Tref для расчёта F0 всегда = 100°C (как на автоклаве)
-                    cycleTref(cycleCount) = T_REF
+                    cycleEnds_(cycleCount) = realEnd
+                    cycleTref(cycleCount) = T_REF  ' Tref=121.1 для стерилизации
                 End If
-                inCyc = False : tKmaxP1 = 0 : peakP1 = False : tMaxP1 = -999
+                inCyc = False : lowCount = 0
             End If
         End If
 P1Next:
@@ -1389,35 +1402,42 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     ws.Cells(1, 1).Font.Bold = True
     ws.Cells(1, 1).Font.Color = RGB(0, 80, 160)
 
-    ' Сканируем Data — находим циклы (та же логика, что в Проходе 1)
+    ' Сканируем Data — находим циклы по УРОВНЮ ВОДЫ + ДАВЛЕНИЮ (как в Проходе 1)
+    Const WATER_ON As Double = 9#
+    Const PRESS_ON As Double = 0.7
+    Const WATER_OFF As Double = 9#
+
     Dim inCyc As Boolean : inCyc = False
     Dim cyStart As Long, cyEnd As Long
-    Dim peakCy As Boolean : peakCy = False
-    Dim tMaxCy As Double : tMaxCy = -999
-    Dim tKmaxCy As Double : tKmaxCy = 0
+    Dim lowCount As Integer : lowCount = 0
     Dim cycIdx As Integer : cycIdx = 0
     Dim topOffset As Long : topOffset = 30
 
     Dim p As Long
     For p = 2 To lastRow
-        Dim rv2 As Variant
-        rv2 = wsData.Cells(p, 5).Value
-        If Not IsNumeric(rv2) Then GoTo ChartNext
-        Dim tp2 As Double : tp2 = CDbl(rv2)
+        Dim wRv As Variant, prRv As Variant
+        wRv = wsData.Cells(p, 7).Value   ' G — уровень воды
+        prRv = wsData.Cells(p, 6).Value  ' F — давление
+        Dim waterLvl As Double, pressLvl As Double
+        waterLvl = IIf(IsNumeric(wRv), CDbl(wRv), 0)
+        pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         If Not inCyc Then
-            If tp2 >= T_START Then
-                inCyc = True : cyStart = p
-                tMaxCy = tp2 : peakCy = False : tKmaxCy = 0
+            If waterLvl > WATER_ON And pressLvl > PRESS_ON Then
+                inCyc = True : cyStart = p : lowCount = 0
             End If
         Else
-            If tp2 > tMaxCy Then tMaxCy = tp2
-            If tMaxCy >= T_PEAK_STERIL Then peakCy = True
+            If waterLvl < WATER_OFF Then
+                lowCount = lowCount + 1
+            Else
+                lowCount = 0
+            End If
             Dim cycEnd2 As Boolean
-            cycEnd2 = (peakCy And tp2 < T_START) Or (p = lastRow)
+            cycEnd2 = (lowCount >= 3) Or (p = lastRow)
             If cycEnd2 Then
-                cyEnd = p
-                ' Tref = 100°C (как на автоклаве)
+                cyEnd = IIf(lowCount >= 3, p - lowCount + 1, p)
+                If cyEnd < cyStart Then cyEnd = cyStart
+
                 Dim tRefCy As Double
                 tRefCy = T_REF
 
@@ -1425,7 +1445,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
                 topOffset = topOffset + 700  ' следующий график на новом листе A4
 
-                inCyc = False : tMaxCy = -999 : peakCy = False : tKmaxCy = 0
+                inCyc = False : lowCount = 0
             End If
         End If
 ChartNext:
