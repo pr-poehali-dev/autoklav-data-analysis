@@ -33,13 +33,18 @@ Sub Autoclave_ProcessCSV()
     Application.Calculation = xlCalculationManual
 
     Set wb = ActiveWorkbook
+
+    ' Извлекаем имя файла без пути
+    Dim csvFileName As String
+    csvFileName = Mid(filePath, InStrRev(filePath, "\\") + 1)
+
     Call ImportAndParseCSV(wb, filePath, wsData)
-    Call PrepareReportSheet(wb, wsReport)
+    Call PrepareReportSheet(wb, wsReport, csvFileName)
 
     lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
     Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow)
     Call FormatReportSheet(wsReport)
-    Call BuildTemperatureChart(wb, wsData, lastRow)
+    Call BuildTemperatureChart(wb, wsData, lastRow, csvFileName)
 
     Application.Calculation = xlCalculationAutomatic
     Application.ScreenUpdating = True
@@ -212,7 +217,7 @@ End Sub
 '-------------------------------------------------------------
 ' Подготовка листа F0_Report
 '-------------------------------------------------------------
-Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet)
+Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName As String)
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
@@ -235,8 +240,9 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet)
         .Cells(1, 1).Font.Color = RGB(0, 100, 180)
         .Range("A1:J1").Merge
 
-        .Cells(2, 1).Value = "Дата формирования: " & Format(Now, "dd.mm.yyyy hh:mm")
+        .Cells(2, 1).Value = "Файл: " & csvFileName & "   |   Дата формирования: " & Format(Now, "dd.mm.yyyy hh:mm")
         .Cells(2, 1).Font.Color = RGB(100, 120, 140)
+        .Cells(2, 1).Font.Bold = True
         .Range("A2:J2").Merge
 
         .Cells(3, 1).Value = "Параметры: Tref = из столбца K (ЗАДАННАЯ ТЕМПЕРАТУРА)  |  z-фактор = 10C  |  Метод: трапеций"
@@ -551,7 +557,7 @@ End Sub
 '-------------------------------------------------------------
 ' График температуры и F0
 '-------------------------------------------------------------
-Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long)
+Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, csvFileName As String)
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
@@ -622,7 +628,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long)
 
     With cht
         .HasTitle = True
-        .ChartTitle.Text = "Температурный профиль автоклава и накопленный F0"
+        .ChartTitle.Text = "Температурный профиль: " & csvFileName
         .ChartTitle.Font.Size = 13
         .ChartTitle.Font.Bold = True
         .ChartTitle.Font.Color = RGB(30, 30, 30)
