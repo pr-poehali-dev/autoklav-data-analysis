@@ -743,7 +743,6 @@ P2Next:
         Dim tRefCycle As Double : tRefCycle = tRefC
 
         Dim result As String, resultColor As Long, noteText As String
-
         Dim f0Norm As Double
         If tRefCycle >= 121 Then
             f0Norm = 6
@@ -755,26 +754,6 @@ P2Next:
 
         Dim trefStr As String
         trefStr = "Tref=" & Format(tRefCycle, "0") & "C"
-
-                Dim result As String
-                Dim resultColor As Long
-                Dim noteText As String
-
-                ' Норма F0 согласно методике для консервной продукции:
-                '   Tref=121.1°C: F0 >= 6 (стандарт ВОЗ / ГОСТ)
-                '   Tref=120°C:   F0 >= 8 (мясо в стекле 0.5 л, говядина/свинина)
-                '   Tref=115°C:   F0 >= 15 (птица, рыба — более низкая T, нужно больше)
-                Dim f0Norm As Double
-                If tRefCycle >= 121 Then
-                    f0Norm = 6
-                ElseIf tRefCycle >= 119 Then
-                    f0Norm = 8
-                Else
-                    f0Norm = 15
-                End If
-
-                Dim trefStr As String
-                trefStr = "Tref=" & Format(tRefCycle, "0") & "C"
 
         If Not peakC Then
             result = "— Без стерилизации"
