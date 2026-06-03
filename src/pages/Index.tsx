@@ -568,8 +568,15 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Const COL_TREF As Integer = 11      ' Столбец K — Заданная температура (Tref цикла)
     Const COL_F0 As Integer = 18        ' Столбец R — накопленный F0
 
-    Dim tRefCycle As Double             ' Tref текущего цикла (из столбца K)
+    Dim tRefCycle As Double             ' Tref итогового цикла (MAX из столбца K)
     tRefCycle = T_REF                   ' по умолчанию 121.1C
+
+    ' Для накопления F0 используем разложение Бигелоу:
+    '   F0 = 10^(-Tref/z) * Σ [10^(T/z) * Δt]
+    ' Накапливаем сумму Σ [10^(T/z) * Δt] отдельно,
+    ' а Tref применяем в конце цикла когда знаем MAX столбца K
+    Dim f0RawSum As Double              ' Σ 10^(T/z) * Δt  (без деления на Tref)
+    Dim tKmax As Double                 ' MAX заданной температуры за цикл (столбец K)
 
     cycleNum = 0
     inCycle = False
@@ -578,6 +585,8 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     tMax = -999
     tMin = 999
     f0Cycle = 0
+    f0RawSum = 0
+    tKmax = 0
     cycleStart = 2
 
     For i = 2 To lastRow
@@ -593,24 +602,11 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 inCycle = True
                 cycleStart = i
                 f0Cycle = 0
+                f0RawSum = 0
+                tKmax = 0        ' будем накапливать MAX из столбца K
                 tMax = tempProd
-                tMin = 999  ' сбросим — будет обновлён только в зоне >= T_MIN_STERIL
+                tMin = 999       ' обновляется только в зоне >= T_MIN_STERIL
                 peakReached = False
-
-                ' Считываем Tref из столбца K — только диапазон 100..130°C
-                Dim trefRaw As Variant
-                trefRaw = wsData.Cells(i, COL_TREF).Value
-                If IsNumeric(trefRaw) Then
-                    Dim trefVal As Double
-                    trefVal = CDbl(trefRaw)
-                    If trefVal >= 100# And trefVal <= 130# Then
-                        tRefCycle = trefVal
-                    Else
-                        tRefCycle = T_REF  ' не похоже на температуру — берём 121.1C
-                    End If
-                Else
-                    tRefCycle = T_REF
-                End If
 
                 ' Сохраняем дату+время начала цикла
                 Dim dv As Variant, tv As Variant
@@ -627,15 +623,14 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             ' tMin считается ТОЛЬКО в зоне стерилизации — см. ниже внутри If tempProd >= T_MIN_STERIL
             If tMax >= T_MIN_STERIL Then peakReached = True
 
-            ' Обновляем Tref — только если значение в диапазоне реальных температур стерилизации
-            Dim trefUpdRaw As Variant
-            trefUpdRaw = wsData.Cells(i, COL_TREF).Value
-            If IsNumeric(trefUpdRaw) Then
-                Dim trefUpd As Double
-                trefUpd = CDbl(trefUpdRaw)
-                ' Принимаем только реальные температуры автоклава: 100..130°C
-                If trefUpd >= 100# And trefUpd <= 130# Then
-                    tRefCycle = trefUpd
+            ' Накапливаем MAX заданной температуры из столбца K за цикл
+            Dim tKrawUpd As Variant
+            tKrawUpd = wsData.Cells(i, COL_TREF).Value
+            If IsNumeric(tKrawUpd) Then
+                Dim tKval As Double
+                tKval = CDbl(tKrawUpd)
+                If tKval >= 100# And tKval <= 130# Then
+                    If tKval > tKmax Then tKmax = tKval
                 End If
             End If
 
@@ -643,8 +638,10 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 ' Минимальная температура ТОЛЬКО в зоне стерилизации
                 If tMin = 999 Or tempProd < tMin Then tMin = tempProd
 
-                Dim lethality As Double
-                lethality = 10 ^ ((tempProd - tRefCycle) / Z_FACTOR)
+                ' Накапливаем "сырую" сумму: 10^(T/z) * Δt
+                ' Tref применим в конце цикла через: F0 = rawSum * 10^(-Tref/z)
+                Dim lethalityRaw As Double
+                lethalityRaw = 10 ^ (tempProd / Z_FACTOR)
 
                 ' --------------------------------------------------
                 ' Вычисляем Δt в секундах, затем переводим в минуты
@@ -706,10 +703,14 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     End If
                 End If
 
-                ' Добавляем в F0 только если Δt определён
+                ' Накапливаем сырую сумму (Tref пока не знаем — MAX будет в конце цикла)
                 If deltaT > 0 Then
-                    f0Cycle = f0Cycle + lethality * deltaT
+                    f0RawSum = f0RawSum + lethalityRaw * deltaT
                 End If
+                ' Промежуточный F0 в столбце R — предварительный с текущим Tref
+                Dim trefInterim As Double
+                trefInterim = IIf(tKmax >= 100, tKmax, T_REF)
+                f0Cycle = f0RawSum * (10 ^ (-(trefInterim) / Z_FACTOR))
             End If
 
             ' Пишем накопленный F0 в столбец R (18)
@@ -723,24 +724,41 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             If cycleEnds Then
                 cycleNum = cycleNum + 1
 
-                ' (durationMin будет рассчитана ниже через миллисекунды)
+                ' --------------------------------------------------
+                ' Финальный Tref = MAX из столбца K за цикл
+                ' Округляем к ближайшей стандартной программе: 115 или 120
+                ' --------------------------------------------------
+                If tKmax >= 118# Then
+                    tRefCycle = 120#   ' программа 120°C
+                ElseIf tKmax >= 100# Then
+                    tRefCycle = 115#   ' программа 115°C
+                Else
+                    tRefCycle = 121.1  ' не определено — стандарт ВОЗ
+                End If
+
+                ' Финальный пересчёт F0 с правильным Tref по методу Бигелоу:
+                ' F0 = Σ [10^(T/z) * Δt] * 10^(-Tref/z)
+                f0Cycle = f0RawSum * (10# ^ (-(tRefCycle) / Z_FACTOR))
 
                 Dim result As String
                 Dim resultColor As Long
                 Dim noteText As String
 
-                ' Норма F0 зависит от Tref программы
+                ' Норма F0 согласно методике для консервной продукции:
+                '   Tref=121.1°C: F0 >= 6 (стандарт ВОЗ / ГОСТ)
+                '   Tref=120°C:   F0 >= 8 (мясо в стекле 0.5 л, говядина/свинина)
+                '   Tref=115°C:   F0 >= 15 (птица, рыба — более низкая T, нужно больше)
                 Dim f0Norm As Double
                 If tRefCycle >= 121 Then
-                    f0Norm = 6    ' Tref 121.1C — стандарт ВОЗ
+                    f0Norm = 6
                 ElseIf tRefCycle >= 119 Then
-                    f0Norm = 10   ' Tref 120C — более мягкий режим, нужно больше времени
+                    f0Norm = 8
                 Else
-                    f0Norm = 15   ' Tref 115C — ещё мягче, норма выше
+                    f0Norm = 15
                 End If
 
                 Dim trefStr As String
-                trefStr = "Tref=" & Format(tRefCycle, "0.#") & "C"
+                trefStr = "Tref=" & Format(tRefCycle, "0") & "C"
 
                 If Not peakReached Then
                     result = "— Без стерилизации"
@@ -812,6 +830,8 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 tMax = -999
                 tMin = 999
                 f0Cycle = 0
+                f0RawSum = 0
+                tKmax = 0
             End If
         End If
 NextRow:
@@ -832,8 +852,7 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Cells(reportRow, 1).Value = "ИТОГО:"
         .Cells(reportRow, 1).Font.Bold = True
         .Cells(reportRow, 1).Font.Color = RGB(0, 180, 220)
-        .Cells(reportRow, 4).Value = "=SUM(D6:D" & lastDataRow & ")"
-        .Cells(reportRow, 4).Font.Bold = True
+        .Cells(reportRow, 4).Value = ""
         .Cells(reportRow, 5).Value = "=MAX(E6:E" & lastDataRow & ")"
         .Cells(reportRow, 5).Font.Bold = True
         ' F0 не суммируется — у каждой программы своё значение
@@ -975,36 +994,36 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
         .ChartTitle.Text = "График температуры продукта и температуры автоклава"
         .ChartTitle.Font.Size = 13
         .ChartTitle.Font.Bold = True
-        .ChartTitle.Font.Color = RGB(220, 235, 255)
+        .ChartTitle.Font.Color = RGB(30, 30, 30)
 
-        ' Тёмный фон как на оригинале
-        .PlotArea.Interior.Color = RGB(10, 30, 70)
-        .PlotArea.Border.LineStyle = xlNone
-        .ChartArea.Interior.Color = RGB(8, 22, 55)
-        .ChartArea.Border.Color = RGB(30, 60, 120)
+        ' Белый фон
+        .PlotArea.Interior.Color = RGB(255, 255, 255)
+        .PlotArea.Border.LineStyle = xlContinuous
+        .PlotArea.Border.Color = RGB(180, 195, 210)
+        .ChartArea.Interior.Color = RGB(255, 255, 255)
+        .ChartArea.Border.Color = RGB(180, 195, 210)
+        .ChartTitle.Font.Color = RGB(30, 30, 30)
 
         With .Axes(xlValue, xlPrimary)
             .HasTitle = False
             .MinimumScale = 0
             .MaximumScale = 150
             .MajorUnit = 25
-            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(40, 70, 130)
-            .MajorGridlines.Format.Line.DashStyle = msoLineSolid
-            .TickLabels.Font.Color = RGB(180, 210, 255)
+            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(210, 220, 230)
+            .MajorGridlines.Format.Line.DashStyle = msoLineDash
+            .TickLabels.Font.Color = RGB(50, 50, 50)
             .TickLabels.Font.Size = 9
-            .AxisBetweenCategories = False
         End With
 
-        ' Скрываем вторичную ось (F0 — дополнительная информация)
         With .Axes(xlValue, xlSecondary)
             .HasTitle = False
-            .TickLabels.Font.Color = RGB(255, 120, 0)
+            .TickLabels.Font.Color = RGB(200, 100, 0)
             .TickLabels.Font.Size = 8
         End With
 
         .HasLegend = True
-        .Legend.Interior.Color = RGB(8, 22, 55)
-        .Legend.Font.Color = RGB(200, 220, 255)
+        .Legend.Interior.Color = RGB(255, 255, 255)
+        .Legend.Font.Color = RGB(30, 30, 30)
         .Legend.Font.Size = 9
         .Legend.Position = xlLegendPositionTop
     End With
