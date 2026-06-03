@@ -573,7 +573,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 cycleStart = i
                 f0Cycle = 0
                 tMax = tempProd
-                tMin = tempProd
+                tMin = 999  ' сбросим — будет обновлён только в зоне >= T_MIN_STERIL
                 peakReached = False
 
                 ' Считываем Tref из столбца K (ЗАДАННАЯ ТЕМПЕРАТУРА)
@@ -597,47 +597,96 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             End If
         Else
             If tempProd > tMax Then tMax = tempProd
-            If tempProd < tMin Then tMin = tempProd
+            ' tMin считается ТОЛЬКО в зоне стерилизации — см. ниже внутри If tempProd >= T_MIN_STERIL
             If tMax >= T_MIN_STERIL Then peakReached = True
 
+            ' Обновляем Tref внутри цикла — заданная температура может меняться
+            Dim trefUpdRaw As Variant
+            trefUpdRaw = wsData.Cells(i, COL_TREF).Value
+            If IsNumeric(trefUpdRaw) And CDbl(trefUpdRaw) > 50 Then
+                tRefCycle = CDbl(trefUpdRaw)
+            End If
+
             If tempProd >= T_MIN_STERIL Then
+                ' Минимальная температура ТОЛЬКО в зоне стерилизации
+                If tMin = 999 Or tempProd < tMin Then tMin = tempProd
+
                 Dim lethality As Double
                 lethality = 10 ^ ((tempProd - tRefCycle) / Z_FACTOR)
 
-                ' Вычисляем Δt в минутах из столбцов A (дата) + B (время)
-                ' Дата хранится как целое число Excel, время — как дробная часть (0..1)
+                ' --------------------------------------------------
+                ' Вычисляем Δt в минутах — метод трапеций по Бигелоу
+                ' Источники в порядке приоритета:
+                '   1. Дата+Время (столбцы A+B) — числа Excel
+                '   2. Время как строка HH:MM:SS (столбец B)
+                '   3. Абсолютные миллисекунды суток (столбец C, если > 1000)
+                '   4. НЕ используем deltaT=1 — слишком опасно для точности
+                ' --------------------------------------------------
                 Dim deltaT As Double
-                deltaT = 1  ' значение по умолчанию — 1 минута
+                deltaT = 0
                 If i > cycleStart Then
+                    ' Способ 1: числа Excel дата+время
                     Dim d1 As Variant, d2 As Variant
                     Dim t1v As Variant, t2v As Variant
-                    d1 = wsData.Cells(i - 1, COL_DATE).Value
+                    d1  = wsData.Cells(i - 1, COL_DATE).Value
                     t1v = wsData.Cells(i - 1, COL_TIME).Value
-                    d2 = wsData.Cells(i, COL_DATE).Value
+                    d2  = wsData.Cells(i, COL_DATE).Value
                     t2v = wsData.Cells(i, COL_TIME).Value
-                    ' Оба значения должны быть числами (Excel хранит дату/время как число)
+
                     If IsNumeric(d1) And IsNumeric(t1v) And IsNumeric(d2) And IsNumeric(t2v) Then
                         Dim dt As Double
-                        ' Полная дата-время = дата (целая) + время (дробная часть)
                         dt = ((CDbl(d2) + CDbl(t2v)) - (CDbl(d1) + CDbl(t1v))) * 24# * 60#
-                        ' Защита: интервал должен быть положительным и разумным (< 30 мин)
-                        If dt > 0# And dt < 30# Then
-                            deltaT = dt
-                        ElseIf dt <= 0# Then
-                            ' Возможно миллисекунды в столбце C дают точность
-                            Dim ms1 As Variant, ms2 As Variant
-                            ms1 = wsData.Cells(i - 1, 3).Value  ' столбец C — миллисекунды
-                            ms2 = wsData.Cells(i, 3).Value
-                            If IsNumeric(ms1) And IsNumeric(ms2) Then
-                                Dim dtMs As Double
-                                dtMs = (CDbl(ms2) - CDbl(ms1)) / 1000# / 60#  ' мс → минуты
-                                If dtMs > 0# And dtMs < 30# Then deltaT = dtMs
+                        If dt > 0# And dt < 60# Then deltaT = dt
+                    End If
+
+                    ' Способ 2: время как строка HH:MM:SS
+                    If deltaT = 0 Then
+                        Dim ts1 As String, ts2 As String
+                        ts1 = Trim(CStr(t1v))
+                        ts2 = Trim(CStr(t2v))
+                        If Left(ts1, 1) = Chr(34) Then ts1 = Mid(ts1, 2, Len(ts1) - 2)
+                        If Left(ts2, 1) = Chr(34) Then ts2 = Mid(ts2, 2, Len(ts2) - 2)
+                        If InStr(ts1, ":") > 0 And InStr(ts2, ":") > 0 Then
+                            On Error Resume Next
+                            Dim tv1Dbl As Double, tv2Dbl As Double
+                            tv1Dbl = CDbl(TimeValue(ts1))
+                            tv2Dbl = CDbl(TimeValue(ts2))
+                            If Err.Number = 0 Then
+                                ' Учитываем переход через полночь
+                                Dim tdiff As Double
+                                tdiff = tv2Dbl - tv1Dbl
+                                If tdiff < 0 Then tdiff = tdiff + 1  ' переход суток
+                                ' Добавляем разницу дат (если сменились сутки)
+                                If IsNumeric(d1) And IsNumeric(d2) Then
+                                    tdiff = tdiff + (CLng(CDbl(d2)) - CLng(CDbl(d1)))
+                                End If
+                                dt = tdiff * 24# * 60#
+                                If dt > 0# And dt < 60# Then deltaT = dt
+                            End If
+                            On Error GoTo 0
+                        End If
+                    End If
+
+                    ' Способ 3: абсолютные мс суток (столбец C, значения > 1000)
+                    If deltaT = 0 Then
+                        Dim ms1 As Variant, ms2 As Variant
+                        ms1 = wsData.Cells(i - 1, 3).Value
+                        ms2 = wsData.Cells(i, 3).Value
+                        If IsNumeric(ms1) And IsNumeric(ms2) Then
+                            Dim msV1 As Double, msV2 As Double
+                            msV1 = CDbl(ms1) : msV2 = CDbl(ms2)
+                            If msV1 > 1000 And msV2 > msV1 Then
+                                deltaT = (msV2 - msV1) / 1000# / 60#
+                                If deltaT >= 60# Then deltaT = 0  ' явная ошибка
                             End If
                         End If
                     End If
                 End If
 
-                f0Cycle = f0Cycle + lethality * deltaT
+                ' Добавляем в F0 только если Δt удалось определить
+                If deltaT > 0 Then
+                    f0Cycle = f0Cycle + lethality * deltaT
+                End If
             End If
 
             ' Пишем накопленный F0 в столбец R (18)
@@ -709,7 +758,12 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     .Cells(reportRow, 3).Value = endDateStr
                     .Cells(reportRow, 4).Value = Round(durationMin, 1)
                     .Cells(reportRow, 5).Value = Round(tMax, 2)
-                    .Cells(reportRow, 6).Value = Round(tMin, 2)
+                    ' tMin = 999 означает зоны стерилизации не было
+                    If tMin < 999 Then
+                        .Cells(reportRow, 6).Value = Round(tMin, 2)
+                    Else
+                        .Cells(reportRow, 6).Value = "—"
+                    End If
                     .Cells(reportRow, 7).Value = Round(f0Cycle, 4)
                     .Cells(reportRow, 8).Value = result
                     .Cells(reportRow, 9).Value = i - cycleStart + 1
