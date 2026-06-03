@@ -10,7 +10,8 @@ const VBA_CODE = `'=============================================================
 Option Explicit
 
 ' Глобальные константы стерилизации
-Const T_REF As Double = 121.1   ' Эталонная температура (C)
+' Tref=100°C, z=10 — режим как на автоклаве (совпадает с фактором стерилизации прибора)
+Const T_REF As Double = 100#    ' Эталонная температура (C) — пастеризационный режим
 Const Z_FACTOR As Double = 10#   ' Z-фактор (C)
 Const T_START As Double = 30#    ' Порог начала цикла (C)
 ' Порог накопления F0. По данным автоклава фактор стерилизации начинает
@@ -518,7 +519,7 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         .Cells(2, 1).Font.Bold = True
         .Range("A2:J2").Merge
 
-        .Cells(3, 1).Value = "Параметры: Tref = из столбца K (ЗАДАННАЯ ТЕМПЕРАТУРА)  |  z-фактор = 10C  |  Метод: трапеций"
+        .Cells(3, 1).Value = "Параметры: Tref = 100C  |  z-фактор = 10C  |  Метод: трапеций (как на автоклаве)"
         .Cells(3, 1).Font.Color = RGB(100, 120, 140)
         .Range("A3:J3").Merge
 
@@ -668,14 +669,8 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     cycleCount = cycleCount + 1
                     cycleStarts(cycleCount) = cyStart
                     cycleEnds_(cycleCount) = p
-                    ' Определяем Tref: к стандартной программе
-                    If tKmaxP1 >= 118# Then
-                        cycleTref(cycleCount) = 120#
-                    ElseIf tKmaxP1 >= 100# Then
-                        cycleTref(cycleCount) = 115#
-                    Else
-                        cycleTref(cycleCount) = 121.1
-                    End If
+                    ' Tref для расчёта F0 всегда = 100°C (как на автоклаве)
+                    cycleTref(cycleCount) = T_REF
                 End If
                 inCyc = False : tKmaxP1 = 0 : peakP1 = False : tMaxP1 = -999
             End If
@@ -749,17 +744,13 @@ P2Next:
         Dim tRefCycle As Double : tRefCycle = tRefC
 
         Dim result As String, resultColor As Long, noteText As String
+        ' Норма F0 для режима Tref=100°C (пастеризационный эффект):
+        ' целевое значение ~15-20 усл. минут (как на автоклаве)
         Dim f0Norm As Double
-        If tRefCycle >= 121 Then
-            f0Norm = 6
-        ElseIf tRefCycle >= 119 Then
-            f0Norm = 8
-        Else
-            f0Norm = 15
-        End If
+        f0Norm = 15
 
         Dim trefStr As String
-        trefStr = "Tref=" & Format(tRefCycle, "0") & "C"
+        trefStr = "Tref=" & Format(tRefCycle, "0") & "C, z=10"
 
         If Not peakC Then
             result = "— Без стерилизации"
@@ -1117,24 +1108,13 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
         Else
             If tp2 > tMaxCy Then tMaxCy = tp2
             If tMaxCy >= T_PEAK_STERIL Then peakCy = True
-            Dim tkR2 As Variant : tkR2 = wsData.Cells(p, 11).Value
-            If IsNumeric(tkR2) Then
-                Dim tkV2 As Double : tkV2 = CDbl(tkR2)
-                If tkV2 >= 100# And tkV2 <= 130# And tkV2 > tKmaxCy Then tKmaxCy = tkV2
-            End If
             Dim cycEnd2 As Boolean
             cycEnd2 = (peakCy And tp2 < T_START) Or (p = lastRow)
             If cycEnd2 Then
                 cyEnd = p
-                ' Определяем Tref цикла
+                ' Tref = 100°C (как на автоклаве)
                 Dim tRefCy As Double
-                If tKmaxCy >= 118# Then
-                    tRefCy = 120#
-                ElseIf tKmaxCy >= 100# Then
-                    tRefCy = 115#
-                Else
-                    tRefCy = 121.1
-                End If
+                tRefCy = T_REF
 
                 cycIdx = cycIdx + 1
                 Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
