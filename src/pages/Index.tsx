@@ -26,7 +26,7 @@ Sub Autoclave_ProcessCSV()
 
     filePath = Application.GetOpenFilename( _
         FileFilter:="CSV Files (*.csv),*.csv,All Files (*.*),*.*", _
-        Title:="Выберите CSV-файл с данными автоклава")
+        Title:="Выберите ОСНОВНОЙ CSV-файл с данными автоклава")
     If filePath = "False" Then Exit Sub
 
     Application.ScreenUpdating = False
@@ -36,9 +36,50 @@ Sub Autoclave_ProcessCSV()
 
     ' Извлекаем имя файла без пути
     Dim csvFileName As String
+    Dim csvFolder As String
     csvFileName = Mid(filePath, InStrRev(filePath, "\\") + 1)
+    csvFolder   = Left(filePath, InStrRev(filePath, "\\"))
 
+    ' ----------------------------------------------------------------
+    ' Импортируем основной файл
+    ' ----------------------------------------------------------------
     Call ImportAndParseCSV(wb, filePath, wsData)
+
+    ' ----------------------------------------------------------------
+    ' Проверяем: не начинается ли файл с T > 40 при времени ~00:00?
+    ' Это признак того, что замес начался в предыдущих сутках
+    ' ----------------------------------------------------------------
+    Dim prevFilePath As String
+    prevFilePath = ""
+
+    If NeedsPreviousFile(wsData) Then
+        Application.ScreenUpdating = True
+        Dim ans As Integer
+        ans = MsgBox("Данные начинаются при температуре продукта > 40°C в начале суток." & Chr(13) & _
+                     "Похоже, замес начался в предыдущем файле." & Chr(13) & Chr(13) & _
+                     "Загрузить предыдущий CSV-файл для корректного расчёта F0 и времени цикла?", _
+                     vbYesNo + vbQuestion, "Переход суток — нужен предыдущий файл?")
+
+        If ans = vbYes Then
+            prevFilePath = Application.GetOpenFilename( _
+                FileFilter:="CSV Files (*.csv),*.csv,All Files (*.*),*.*", _
+                Title:="Выберите ПРЕДЫДУЩИЙ CSV-файл (предыдущие сутки)")
+            If prevFilePath = "False" Then prevFilePath = ""
+        End If
+        Application.ScreenUpdating = False
+    End If
+
+    ' ----------------------------------------------------------------
+    ' Если выбран предыдущий файл — вставляем его данные ПЕРЕД основными
+    ' ----------------------------------------------------------------
+    If prevFilePath <> "" Then
+        Call PrependPreviousCSV(wb, wsData, prevFilePath)
+        ' Имя файла включает оба для прозрачности
+        Dim prevName As String
+        prevName = Mid(prevFilePath, InStrRev(prevFilePath, "\\") + 1)
+        csvFileName = prevName & " + " & csvFileName
+    End If
+
     Call PrepareReportSheet(wb, wsReport, csvFileName)
 
     lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
@@ -46,11 +87,218 @@ Sub Autoclave_ProcessCSV()
     Call FormatReportSheet(wsReport)
     Call BuildTemperatureChart(wb, wsData, lastRow, csvFileName)
 
+    ' ----------------------------------------------------------------
+    ' Сохраняем результат в отдельный .xlsm с именем основного файла
+    ' ----------------------------------------------------------------
+    Dim saveName As String
+    Dim saveExt As String
+    saveExt = ".xlsm"
+    ' Убираем расширение .csv из имени
+    saveName = csvFileName
+    If LCase(Right(saveName, 4)) = ".csv" Then
+        saveName = Left(saveName, Len(saveName) - 4)
+    End If
+    ' Убираем недопустимые символы для имени файла
+    saveName = Replace(saveName, "+", "_")
+    saveName = Replace(saveName, " ", "_")
+
+    Dim savePath As String
+    savePath = csvFolder & saveName & saveExt
+
     Application.Calculation = xlCalculationAutomatic
     Application.ScreenUpdating = True
 
-    MsgBox "Расчёт завершён! Результаты на листе 'F0_Report'.", _
+    ' Сохраняем копию как xlsm
+    On Error Resume Next
+    wb.SaveCopyAs savePath
+    On Error GoTo 0
+
+    Dim savedMsg As String
+    If Len(Dir(savePath)) > 0 Then
+        savedMsg = Chr(13) & Chr(13) & "Файл сохранён:" & Chr(13) & savePath
+    Else
+        savedMsg = Chr(13) & Chr(13) & "Не удалось сохранить файл — проверьте права на папку."
+    End If
+
+    MsgBox "Расчёт завершён! Результаты на листе 'F0_Report'." & savedMsg, _
            vbInformation, "Автоклав F0 — Готово"
+End Sub
+
+'-------------------------------------------------------------
+' Проверяет: начинается ли файл с "горячей" температуры в 00:00
+' Признак перехода суток — замес начался вчера
+'-------------------------------------------------------------
+Function NeedsPreviousFile(wsData As Worksheet) As Boolean
+    NeedsPreviousFile = False
+    Dim lastR As Long
+    lastR = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+    If lastR < 3 Then Exit Function
+
+    ' Смотрим первые 10 строк данных
+    Dim r As Long
+    For r = 2 To IIf(lastR < 11, lastR, 11)
+        Dim tVal As Variant
+        tVal = wsData.Cells(r, 5).Value  ' столбец E — температура продукта
+        If Not IsNumeric(tVal) Then GoTo NextCheck
+
+        Dim tempCheck As Double
+        tempCheck = CDbl(tVal)
+
+        ' Берём время из столбца B
+        Dim timeRaw As Variant
+        timeRaw = wsData.Cells(r, 2).Value
+        Dim timeDbl As Double
+        timeDbl = 0
+
+        If IsNumeric(timeRaw) Then
+            timeDbl = CDbl(timeRaw)
+        ElseIf InStr(CStr(timeRaw), ":") > 0 Then
+            On Error Resume Next
+            timeDbl = CDbl(TimeValue(Trim(CStr(timeRaw))))
+            On Error GoTo 0
+        End If
+
+        ' Время до 5 минут от полуночи (< 0.0035 в дробях Excel = ~5 мин)
+        If tempCheck > 40 And timeDbl < 0.0035 Then
+            NeedsPreviousFile = True
+            Exit Function
+        End If
+NextCheck:
+    Next r
+End Function
+
+'-------------------------------------------------------------
+' Вставляет данные предыдущего CSV В НАЧАЛО листа Data (перед основными)
+' Дата предыдущего файла остаётся как есть — она на сутки раньше
+'-------------------------------------------------------------
+Sub PrependPreviousCSV(wb As Workbook, wsData As Worksheet, prevFilePath As String)
+    ' Читаем предыдущий CSV во временный массив
+    Dim fileNum As Integer
+    Dim lineText As String
+    Dim fields() As String
+    Dim prevRows() As String
+    Dim prevCount As Long
+    prevCount = 0
+
+    fileNum = FreeFile
+    Open prevFilePath For Input As #fileNum
+    ReDim prevRows(1 To 50000)
+
+    Do While Not EOF(fileNum)
+        Line Input #fileNum, lineText
+        lineText = Trim(lineText)
+        If Len(lineText) = 0 Then GoTo SkipLine
+        If Left(lineText, 1) = "#" Then GoTo SkipLine
+        prevCount = prevCount + 1
+        prevRows(prevCount) = lineText
+SkipLine:
+    Loop
+    Close #fileNum
+
+    If prevCount = 0 Then Exit Sub
+
+    ' Сдвигаем существующие данные вниз (кроме строки заголовков — строка 1)
+    Dim existingLastRow As Long
+    existingLastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+
+    ' Вставляем пустые строки после заголовка для данных предыдущего файла
+    ' Первая строка prevRows может быть заголовком CSV — пропускаем
+    Dim startIdx As Long
+    startIdx = 1
+    Dim firstFields() As String
+    If InStr(prevRows(1), ";") > 0 Then
+        firstFields = Split(prevRows(1), ";")
+    Else
+        firstFields = Split(prevRows(1), ",")
+    End If
+    ' Чистим кавычки первого поля для проверки
+    Dim fp As String
+    fp = Trim(firstFields(0))
+    If Len(fp) >= 2 And Left(fp, 1) = Chr(34) Then fp = Mid(fp, 2, Len(fp) - 2)
+    ' Если первая строка — заголовок (не дата), пропускаем её
+    If Not (fp Like "####/##/##") And Not IsDate(fp) Then startIdx = 2
+
+    Dim insertRows As Long
+    insertRows = prevCount - startIdx + 1
+    If insertRows <= 0 Then Exit Sub
+
+    wsData.Rows("2:" & (insertRows + 1)).Insert Shift:=xlDown
+
+    ' Записываем строки предыдущего файла начиная со строки 2
+    Dim writeRow As Long
+    writeRow = 2
+    Dim pi As Long
+    Dim pFields() As String
+    Dim pk As Integer
+
+    For pi = startIdx To prevCount
+        lineText = prevRows(pi)
+        If InStr(lineText, ";") > 0 Then
+            pFields = Split(lineText, ";")
+        Else
+            pFields = Split(lineText, ",")
+        End If
+
+        ' Очищаем кавычки
+        For pk = 0 To UBound(pFields)
+            pFields(pk) = Trim(pFields(pk))
+            If Len(pFields(pk)) >= 2 Then
+                If Left(pFields(pk), 1) = Chr(34) And Right(pFields(pk), 1) = Chr(34) Then
+                    pFields(pk) = Mid(pFields(pk), 2, Len(pFields(pk)) - 2)
+                End If
+            End If
+        Next pk
+
+        Dim pTotalCols As Integer
+        pTotalCols = UBound(pFields) + 1
+        If pTotalCols > 17 Then pTotalCols = 17
+
+        Dim pi2 As Integer
+        For pi2 = 0 To pTotalCols - 1
+            Dim pCell As String
+            pCell = Trim(pFields(pi2))
+
+            Select Case pi2
+                Case 0 ' Дата YYYY/MM/DD
+                    If InStr(pCell, "/") > 0 Then
+                        Dim dp() As String
+                        dp = Split(pCell, "/")
+                        If UBound(dp) = 2 Then
+                            wsData.Cells(writeRow, 1).Value = DateSerial(CInt(dp(0)), CInt(dp(1)), CInt(dp(2)))
+                        Else
+                            wsData.Cells(writeRow, 1).Value = pCell
+                        End If
+                    ElseIf IsDate(pCell) Then
+                        wsData.Cells(writeRow, 1).Value = CDate(pCell)
+                    Else
+                        wsData.Cells(writeRow, 1).Value = pCell
+                    End If
+
+                Case 1 ' Время HH:MM:SS
+                    If InStr(pCell, ":") > 0 Then
+                        On Error Resume Next
+                        wsData.Cells(writeRow, 2).Value = TimeValue(pCell)
+                        On Error GoTo 0
+                    Else
+                        wsData.Cells(writeRow, 2).Value = pCell
+                    End If
+
+                Case Else
+                    pCell = Replace(pCell, ",", ".")
+                    If IsNumeric(pCell) Then
+                        wsData.Cells(writeRow, pi2 + 1).Value = CDbl(pCell)
+                    Else
+                        wsData.Cells(writeRow, pi2 + 1).Value = pCell
+                    End If
+            End Select
+        Next pi2
+
+        writeRow = writeRow + 1
+    Next pi
+
+    ' Форматируем добавленные строки
+    wsData.Columns(1).NumberFormat = "dd.mm.yyyy"
+    wsData.Columns(2).NumberFormat = "hh:mm:ss"
 End Sub
 
 '-------------------------------------------------------------
