@@ -834,7 +834,7 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         colHeaders(1) = "Цикл"
         colHeaders(2) = "Начало"
         colHeaders(3) = "Конец"
-        colHeaders(4) = "Длит. (мин)"
+        colHeaders(4) = "Длительность"
         colHeaders(5) = "T макс. (C)"
         colHeaders(6) = "T мин. при стерил. (C)"
         colHeaders(7) = "F0 (мин)"
@@ -1092,11 +1092,22 @@ P2Next:
         startDateStr = FormatDateTime_FromRow(wsData, rStart)
         endDateStr   = FormatDateTime_FromRow(wsData, rEnd)
 
+        ' Форматируем длительность как "X ч YY м"
+        Dim durHours As Long, durMins As Long
+        durHours = CLng(Int(durationMin / 60))
+        durMins  = CLng(Int(durationMin - durHours * 60))
+        Dim durStr As String
+        If durHours > 0 Then
+            durStr = durHours & " ч " & Format(durMins, "00") & " м"
+        Else
+            durStr = durMins & " м"
+        End If
+
         With wsReport
             .Cells(reportRow, 1).Value = ci
             .Cells(reportRow, 2).Value = startDateStr
             .Cells(reportRow, 3).Value = endDateStr
-            .Cells(reportRow, 4).Value = Round(durationMin, 1)
+            .Cells(reportRow, 4).Value = durStr
             .Cells(reportRow, 5).Value = Round(tMax, 2)
             .Cells(reportRow, 6).Value = IIf(tMin < 999, Round(tMin, 2), "—")
             .Cells(reportRow, 7).Value = Round(f0Cycle, 4)
