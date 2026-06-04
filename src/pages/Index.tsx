@@ -813,38 +813,32 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         .Cells.Interior.Color = RGB(255, 255, 255)
         .Cells.Font.Color = RGB(30, 30, 30)
 
-        .Cells(1, 1).Value = "ПРОТОКОЛ СТЕРИЛИЗАЦИИ — РАСЧЁТ F0"
+        .Cells(1, 1).Value = "ПРОТОКОЛ СТЕРИЛИЗАЦИИ"
         .Cells(1, 1).Font.Size = 14
         .Cells(1, 1).Font.Bold = True
         .Cells(1, 1).Font.Color = RGB(0, 100, 180)
-        .Range("A1:J1").Merge
+        .Range("A1:H1").Merge
 
         .Cells(2, 1).Value = "Файл: " & csvFileName & "   |   Дата формирования: " & Format(Now, "dd.mm.yyyy hh:mm")
         .Cells(2, 1).Font.Color = RGB(100, 120, 140)
         .Cells(2, 1).Font.Bold = True
-        .Range("A2:J2").Merge
+        .Range("A2:H2").Merge
 
         .Cells(3, 1).Value = "Стерилизация: Tref = 121.1C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
         .Cells(3, 1).Font.Color = RGB(100, 120, 140)
-        .Range("A3:J3").Merge
+        .Range("A3:H3").Merge
 
         .Rows(4).RowHeight = 6
 
-        Dim colHeaders(1 To 10) As String
-        colHeaders(1) = "Цикл"
-        colHeaders(2) = "Начало"
-        colHeaders(3) = "Конец"
-        colHeaders(4) = "Длительность"
-        colHeaders(5) = "T макс. (C)"
-        colHeaders(6) = "T мин. при стерил. (C)"
-        colHeaders(7) = "F0 (мин)"
-        colHeaders(8) = "Результат"
-        colHeaders(9) = "Строк"
-        colHeaders(10) = "Примечание"
+        ' ===== ТАБЛИЦА 1: основные данные (8 столбцов, умещается на А4) =====
+        Dim h1(1 To 8) As String
+        h1(1) = "Цикл" : h1(2) = "Начало" : h1(3) = "Конец"
+        h1(4) = "Длительность" : h1(5) = "T макс. (C)"
+        h1(6) = "T мин. при стерил. (C)" : h1(7) = "F0 (мин)" : h1(8) = "Результат"
 
         Dim c As Integer
-        For c = 1 To 10
-            .Cells(5, c).Value = colHeaders(c)
+        For c = 1 To 8
+            .Cells(5, c).Value = h1(c)
             .Cells(5, c).Font.Bold = True
             .Cells(5, c).Font.Color = RGB(255, 255, 255)
             .Cells(5, c).Interior.Color = RGB(30, 80, 130)
@@ -1067,6 +1061,11 @@ P1Next:
     Dim reportRow As Integer
     reportRow = 6
 
+    ' Массив для хранения примечаний (для таблицы 2)
+    ReDim noteArr(1 To 500) As String
+    ReDim resultArr(1 To 500) As String
+    ReDim resultColorArr(1 To 500) As Long
+
     Dim ci As Integer
     For ci = 1 To cycleCount
         Dim rStart As Long, rEnd As Long, tRefC As Double
@@ -1186,32 +1185,37 @@ P2Next:
             .Cells(reportRow, 6).Value = IIf(tMin < 999, Round(tMin, 2), "—")
             .Cells(reportRow, 7).Value = Round(f0Cycle, 4)
             .Cells(reportRow, 8).Value = result
-            .Cells(reportRow, 9).Value = rEnd - rStart + 1
-            .Cells(reportRow, 10).Value = noteText
 
             .Cells(reportRow, 7).NumberFormat = "0.0000"
             .Cells(reportRow, 8).Font.Color = resultColor
             .Cells(reportRow, 8).Font.Bold = True
 
             If ci Mod 2 = 0 Then
-                .Rows(reportRow).Interior.Color = RGB(240, 246, 252)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Interior.Color = RGB(240, 246, 252)
             Else
-                .Rows(reportRow).Interior.Color = RGB(255, 255, 255)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Interior.Color = RGB(255, 255, 255)
             End If
-            .Rows(reportRow).Font.Color = RGB(30, 30, 30)
+            .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Font.Color = RGB(30, 30, 30)
             .Cells(reportRow, 8).Font.Color = resultColor
+            .Cells(reportRow, 8).Font.Bold = True
         End With
+
+        ' Сохраняем для таблицы 2
+        noteArr(ci) = noteText
+        resultArr(ci) = result
+        resultColorArr(ci) = resultColor
 
         reportRow = reportRow + 1
     Next ci
 
-    Call AddSummaryRow(wsReport, reportRow, cycleCount)
+    Call AddSummaryRow(wsReport, reportRow, cycleCount, cycleCount, noteArr, resultArr, resultColorArr)
 End Sub
 
 '-------------------------------------------------------------
-' Итоговая строка
+' Итоговая строка + Таблица 2 (примечания/программа)
 '-------------------------------------------------------------
-Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As Integer)
+Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As Integer, _
+    cycleCount As Integer, noteArr() As String, resultArr() As String, resultColorArr() As Long)
     Dim lastDataRow As Integer
     lastDataRow = reportRow - 1
     reportRow = reportRow + 1
@@ -1223,19 +1227,56 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Cells(reportRow, 4).Value = ""
         .Cells(reportRow, 5).Value = "=MAX(E6:E" & lastDataRow & ")"
         .Cells(reportRow, 5).Font.Bold = True
-        ' F0: максимальный среди всех циклов (итоговая строка)
-        .Cells(reportRow, 7).Value = "=MAX(G6:G" & lastDataRow & ")"
-        .Cells(reportRow, 7).NumberFormat = "0.0000"
-        .Cells(reportRow, 7).Font.Bold = True
         .Cells(reportRow, 8).Value = "Всего циклов: " & totalCycles
         .Cells(reportRow, 8).Font.Bold = True
-        .Rows(reportRow).Interior.Color = RGB(220, 235, 248)
-        .Rows(reportRow).Font.Color = RGB(20, 60, 100)
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Interior.Color = RGB(220, 235, 248)
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Font.Color = RGB(20, 60, 100)
         .Cells(reportRow, 1).Font.Color = RGB(0, 100, 180)
-        .Rows(reportRow).Borders(xlEdgeTop).LineStyle = xlContinuous
-        .Rows(reportRow).Borders(xlEdgeTop).Color = RGB(0, 100, 180)
-        .Rows(reportRow).Borders(xlEdgeTop).Weight = xlMedium
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Borders(xlEdgeTop).LineStyle = xlContinuous
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Borders(xlEdgeTop).Color = RGB(0, 100, 180)
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Borders(xlEdgeTop).Weight = xlMedium
     End With
+
+    ' ===== ТАБЛИЦА 2: программа/примечания =====
+    ' Пустая строка-разделитель
+    reportRow = reportRow + 2
+
+    With wsReport
+        .Cells(reportRow, 1).Value = "Цикл"
+        .Cells(reportRow, 2).Value = "Результат"
+        .Cells(reportRow, 3).Value = "Программа / Примечание"
+        Dim h As Integer
+        For h = 1 To 3
+            .Cells(reportRow, h).Font.Bold = True
+            .Cells(reportRow, h).Font.Color = RGB(255, 255, 255)
+            .Cells(reportRow, h).Interior.Color = RGB(30, 80, 130)
+            .Cells(reportRow, h).HorizontalAlignment = xlCenter
+        Next h
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Borders(xlEdgeBottom).Color = RGB(0, 120, 200)
+    End With
+    reportRow = reportRow + 1
+
+    Dim ni As Integer
+    For ni = 1 To cycleCount
+        With wsReport
+            .Cells(reportRow, 1).Value = ni
+            .Cells(reportRow, 1).HorizontalAlignment = xlCenter
+            .Cells(reportRow, 2).Value = resultArr(ni)
+            .Cells(reportRow, 2).Font.Color = resultColorArr(ni)
+            .Cells(reportRow, 2).Font.Bold = True
+            .Cells(reportRow, 3).Value = noteArr(ni)
+            If ni Mod 2 = 0 Then
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Interior.Color = RGB(240, 246, 252)
+            Else
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Interior.Color = RGB(255, 255, 255)
+            End If
+            .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Font.Color = RGB(30, 30, 30)
+            .Cells(reportRow, 2).Font.Color = resultColorArr(ni)
+            .Cells(reportRow, 2).Font.Bold = True
+        End With
+        reportRow = reportRow + 1
+    Next ni
 End Sub
 
 '-------------------------------------------------------------
@@ -1243,28 +1284,43 @@ End Sub
 '-------------------------------------------------------------
 Sub FormatReportSheet(wsReport As Worksheet)
     With wsReport
-        .Columns(1).ColumnWidth = 7
-        .Columns(2).ColumnWidth = 22
-        .Columns(3).ColumnWidth = 22
-        .Columns(4).ColumnWidth = 13
-        .Columns(5).ColumnWidth = 13
-        .Columns(6).ColumnWidth = 24
-        .Columns(7).ColumnWidth = 13
-        .Columns(8).ColumnWidth = 26
-        .Columns(9).ColumnWidth = 8
-        .Columns(10).ColumnWidth = 20
+        ' Ширины под таблицу 1 (8 колонок, умещается на А4 с узкими полями)
+        .Columns(1).ColumnWidth = 6    ' Цикл
+        .Columns(2).ColumnWidth = 19   ' Начало
+        .Columns(3).ColumnWidth = 19   ' Конец
+        .Columns(4).ColumnWidth = 12   ' Длительность
+        .Columns(5).ColumnWidth = 11   ' T макс
+        .Columns(6).ColumnWidth = 20   ' T мин
+        .Columns(7).ColumnWidth = 11   ' F0
+        .Columns(8).ColumnWidth = 26   ' Результат
         .Columns(1).HorizontalAlignment = xlCenter
         .Columns(4).HorizontalAlignment = xlCenter
+        .Columns(5).HorizontalAlignment = xlCenter
+        .Columns(6).HorizontalAlignment = xlCenter
         .Columns(7).HorizontalAlignment = xlCenter
-        .Columns(9).HorizontalAlignment = xlCenter
         ' Белый фон, чёрный шрифт
         .Cells.Interior.Color = RGB(255, 255, 255)
         .Cells.Font.Color = RGB(0, 0, 0)
         ' Заголовок
         .Cells(1, 1).Font.Color = RGB(0, 100, 180)
         .Cells(1, 1).Font.Size = 14
+        .Range("A1:H1").Merge
+        .Range("A2:H2").Merge
+        .Range("A3:H3").Merge
         .Rows(2).Font.Color = RGB(80, 80, 80)
         .Rows(3).Font.Color = RGB(80, 80, 80)
+        ' Поля печати — узкие для А4
+        With .PageSetup
+            .Orientation = xlPortrait
+            .PaperSize = xlPaperA4
+            .LeftMargin = Application.InchesToPoints(0.4)
+            .RightMargin = Application.InchesToPoints(0.4)
+            .TopMargin = Application.InchesToPoints(0.5)
+            .BottomMargin = Application.InchesToPoints(0.5)
+            .FitToPagesWide = 1
+            .FitToPagesTall = False
+            .Zoom = False
+        End With
     End With
 End Sub
 
@@ -1333,6 +1389,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim f0MaxVal As Double : f0MaxVal = 0
 
+    Dim f0Started As Boolean : f0Started = False
     For ri = 1 To nRows
         Dim rowIdx As Long : rowIdx = rStart + ri - 1
         Dim vEnv As Variant, vProd As Variant, vF0 As Variant
@@ -1341,25 +1398,28 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         vF0   = wsData.Cells(rowIdx, 18).Value  ' R — F0
         arrEnv(ri)  = IIf(IsNumeric(vEnv), CDbl(vEnv), 0)
         arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
-        arrF0(ri)   = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        ' F0: рисуем только с момента когда начало накапливаться (> 0.0001)
+        Dim f0Val As Double : f0Val = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        If f0Val > 0.0001 Then f0Started = True
+        If f0Started Then
+            arrF0(ri) = f0Val
+        Else
+            arrF0(ri) = 0   ' до начала стерилизации — ноль (линия прижата к оси)
+        End If
         arrTref(ri) = tRefC
         If arrF0(ri) > f0MaxVal Then f0MaxVal = arrF0(ri)
     Next ri
 
-    ' Округляем максимум F0 вверх для красивой шкалы
+    ' Масштаб F0: максимум = реальный макс + 10%, не растягиваем пустую шкалу
     Dim f0AxisMax As Double
     If f0MaxVal <= 0 Then
         f0AxisMax = 1
-    ElseIf f0MaxVal <= 5 Then
-        f0AxisMax = 5
-    ElseIf f0MaxVal <= 10 Then
-        f0AxisMax = 10
-    ElseIf f0MaxVal <= 20 Then
-        f0AxisMax = 20
-    ElseIf f0MaxVal <= 50 Then
-        f0AxisMax = 50
     Else
-        f0AxisMax = CDbl(CLng(f0MaxVal * 1.2 / 10 + 1) * 10)
+        ' Округляем до ближайшего кратного 5 сверху (реальный макс + 10%)
+        Dim f0Raw As Double : f0Raw = f0MaxVal * 1.1
+        f0AxisMax = CDbl(Int(f0Raw / 5 + 1) * 5)
+        ' Минимум 5 чтобы шкала не сжималась до 1
+        If f0AxisMax < 5 Then f0AxisMax = 5
     End If
 
     ' --- Серия 1: Температура среды — синяя ---
@@ -1417,7 +1477,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     With cht
         .HasTitle = True
-        .ChartTitle.Text = "Цикл " & cycleIdx & "  |  Tref = " & Format(tRefC, "0") & "°C"
+        .ChartTitle.Text = "Цикл " & cycleIdx
         .ChartTitle.Font.Size = 11
         .ChartTitle.Font.Bold = True
         .ChartTitle.Font.Color = RGB(20, 20, 20)
