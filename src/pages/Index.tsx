@@ -1557,6 +1557,42 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .Legend.Font.Color = RGB(30, 30, 30)
         .Legend.Font.Size = 8
         .Legend.Position = xlLegendPositionRight
+
+        ' Метки-номера на последней точке каждой линии
+        Dim labelColors(1 To 4) As Long
+        labelColors(1) = RGB(30, 80, 200)   ' синий — T среды
+        labelColors(2) = RGB(210, 30, 30)   ' красный — T продукта
+        labelColors(3) = RGB(180, 140, 0)   ' тёмно-жёлтый — T задан.
+        labelColors(4) = RGB(20, 20, 20)    ' чёрный — F0
+
+        Dim si As Integer
+        For si = 1 To 4
+            If si <= .SeriesCollection.Count Then
+                Dim srLbl As Series
+                Set srLbl = .SeriesCollection(si)
+                Dim ptCount As Long
+                ptCount = srLbl.Points.Count
+                If ptCount > 0 Then
+                    ' Убираем все лейблы, оставляем только последнюю точку
+                    srLbl.HasDataLabels = False
+                    Dim lastPt As Point
+                    Set lastPt = srLbl.Points(ptCount)
+                    lastPt.HasDataLabel = True
+                    lastPt.DataLabel.ShowValue = False
+                    lastPt.DataLabel.ShowSeriesName = False
+                    lastPt.DataLabel.ShowLegendKey = False
+                    lastPt.DataLabel.Caption = CStr(si)
+                    lastPt.DataLabel.Font.Size = 9
+                    lastPt.DataLabel.Font.Bold = True
+                    lastPt.DataLabel.Font.Color = labelColors(si)
+                    lastPt.DataLabel.Interior.Color = RGB(255, 255, 255)
+                    lastPt.DataLabel.Border.Color = labelColors(si)
+                    lastPt.DataLabel.Border.LineStyle = xlContinuous
+                    lastPt.DataLabel.Border.Weight = xlThin
+                    lastPt.DataLabel.Position = xlLabelPositionRight
+                End If
+            End If
+        Next si
     End With
 End Sub
 
