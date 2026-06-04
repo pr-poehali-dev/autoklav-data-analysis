@@ -1410,6 +1410,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim f0MaxVal As Double : f0MaxVal = 0
 
+    ' Сначала заполняем все значения и находим первую точку T>=90
+    Dim f0StartRi As Long : f0StartRi = 0   ' индекс первой точки T>=T_MIN_STERIL
     For ri = 1 To nRows
         Dim rowIdx As Long : rowIdx = rStart + ri - 1
         Dim vEnv As Variant, vProd As Variant, vF0 As Variant
@@ -1420,27 +1422,31 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
         arrTref(ri) = tRefC
 
-        ' F0: рисуем только с момента когда T продукта достигла T_MIN_STERIL (90°C)
-        ' До этого — Empty (разрыв линии, ничего не рисуется)
-        Dim tProdVal As Double : tProdVal = arrProd(ri)
         Dim f0Val As Double : f0Val = IIf(IsNumeric(vF0), CDbl(vF0), 0)
-        If tProdVal >= T_MIN_STERIL Then
-            arrF0(ri) = f0Val
-            If f0Val > f0MaxVal Then f0MaxVal = f0Val
-        Else
-            arrF0(ri) = Empty   ' линия не рисуется до достижения 90°C
-        End If
+        ' Запоминаем где первый раз T продукта >= 90°C
+        If f0StartRi = 0 And arrProd(ri) >= T_MIN_STERIL Then f0StartRi = ri
+        ' Временно сохраняем все значения F0
+        arrF0(ri) = f0Val
+        If f0Val > f0MaxVal Then f0MaxVal = f0Val
     Next ri
 
-    ' Масштаб F0: максимум строго по реальному значению + 10%, без растяжения
+    ' Второй проход: до первой точки T>=90 — Empty (линия не рисуется)
+    ' После — всё рисуется до конца данных включительно
+    If f0StartRi > 1 Then
+        For ri = 1 To f0StartRi - 1
+            arrF0(ri) = Empty
+        Next ri
+    End If
+
+    ' Масштаб F0: максимум = реальный макс + 5% отступ, без лишнего пространства
     Dim f0AxisMax As Double
     If f0MaxVal <= 0 Then
         f0AxisMax = 1
     Else
-        ' Округляем до ближайшего кратного 5 сверху
-        Dim f0Raw As Double : f0Raw = f0MaxVal * 1.1
-        f0AxisMax = CDbl(Int(f0Raw / 5 + 1) * 5)
-        If f0AxisMax < 5 Then f0AxisMax = 5
+        f0AxisMax = f0MaxVal * 1.05
+        ' Округляем до 1 знака для читаемой шкалы
+        f0AxisMax = CDbl(Int(f0AxisMax * 10 + 1)) / 10
+        If f0AxisMax < 1 Then f0AxisMax = 1
     End If
 
     ' --- Серия 1: Температура среды — синяя ---
