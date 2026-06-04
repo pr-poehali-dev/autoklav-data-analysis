@@ -1080,10 +1080,11 @@ P1Next:
     Dim reportRow As Integer
     reportRow = 6
 
-    ' Массив для хранения примечаний (для таблицы 2)
+    ' Массив для хранения примечаний (для таблицы 2) — только прошедшие фильтр 60 мин
     ReDim noteArr(1 To 500) As String
     ReDim resultArr(1 To 500) As String
     ReDim resultColorArr(1 To 500) As Long
+    Dim validCycleCount As Integer : validCycleCount = 0
 
     Dim ci As Integer
     For ci = 1 To cycleCount
@@ -1222,16 +1223,17 @@ P2Next:
             .Cells(reportRow, 8).Font.Bold = True
         End With
 
-        ' Сохраняем для таблицы 2
-        noteArr(ci) = noteText
-        resultArr(ci) = result
-        resultColorArr(ci) = resultColor
+        ' Сохраняем для таблицы 2 (только циклы прошедшие фильтр 60 мин)
+        validCycleCount = validCycleCount + 1
+        noteArr(validCycleCount) = noteText
+        resultArr(validCycleCount) = result
+        resultColorArr(validCycleCount) = resultColor
 
         reportRow = reportRow + 1
 NextCycle:
     Next ci
 
-    Call AddSummaryRow(wsReport, reportRow, cycleCount, cycleCount, noteArr, resultArr, resultColorArr)
+    Call AddSummaryRow(wsReport, reportRow, validCycleCount, validCycleCount, noteArr, resultArr, resultColorArr)
 End Sub
 
 '-------------------------------------------------------------
