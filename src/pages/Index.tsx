@@ -1436,11 +1436,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
     Next ri
 
-    ' Заполняем arrF0: до f0StartRi — Empty (линия не рисуется совсем)
-    ' Начиная с f0StartRi и до конца — рисуем всё включая "плато" после цикла
+    ' Заполняем arrF0:
+    ' - до f0StartRi — Empty (линия не рисуется)
+    ' - с f0StartRi до конца — горизонтальная линия на уровне итогового f0MaxVal
+    '   (не накопленная кривая, а плоская полоса показывающая достигнутый результат)
     For ri = 1 To nRows
         If f0StartRi > 0 And ri >= f0StartRi Then
-            arrF0(ri) = arrF0raw(ri)
+            arrF0(ri) = f0MaxVal
         Else
             arrF0(ri) = Empty
         End If
