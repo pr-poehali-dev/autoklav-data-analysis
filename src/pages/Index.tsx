@@ -964,6 +964,9 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     ' Конец: давление < 6.0 бар — 5 строк подряд (защита от кратких колебаний)
     Const CYCLE_THRESH As Double = 6#   ' порог давления
     Const END_COUNT As Integer = 5      ' строк подряд ниже порога = конец цикла
+    ' Минимальная длина цикла — интервал ~10 сек, строк ~6/мин
+    ' Цикл менее 5 минут = менее ~30 строк — явно ложное срабатывание
+    Const MIN_CYCLE_ROWS As Integer = 30
 
     ' ================================================================
     ' ПРОХОД 1: находим границы циклов ТОЛЬКО ПО ДАВЛЕНИЮ
@@ -1031,6 +1034,12 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     realEnd = p
                 End If
                 If realEnd < cyStart Then realEnd = cyStart
+
+                ' Пропускаем слишком короткие циклы — ложные срабатывания
+                If (realEnd - cyStart + 1) < MIN_CYCLE_ROWS Then
+                    inCyc = False : endCount = 0 : tKmaxP1 = 0
+                    GoTo P1Next
+                End If
 
                 If cycleCount < 500 Then
                     cycleCount = cycleCount + 1
@@ -1353,7 +1362,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         f0AxisMax = CDbl(CLng(f0MaxVal * 1.2 / 10 + 1) * 10)
     End If
 
-    ' --- Серия 1: Температура среды — тёмно-синяя ---
+    ' --- Серия 1: Температура среды — синяя ---
     Dim s1 As Series
     Set s1 = cht.SeriesCollection.NewSeries
     s1.Name = "1. T среды (°C)"
@@ -1365,37 +1374,37 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s1.Smooth = False
     s1.AxisGroup = xlPrimary
 
-    ' --- Серия 2: T° продукта — бирюзовая, сглаженная ---
+    ' --- Серия 2: T° продукта — красная, сглаженная ---
     Dim s2 As Series
     Set s2 = cht.SeriesCollection.NewSeries
     s2.Name = "2. T продукта (°C)"
     s2.Values = arrProd
     s2.XValues = timeLabels
-    s2.Format.Line.ForeColor.RGB = RGB(0, 180, 180)
+    s2.Format.Line.ForeColor.RGB = RGB(210, 30, 30)
     s2.Format.Line.Weight = 2.5
     s2.MarkerStyle = xlMarkerStyleNone
     s2.Smooth = True
     s2.AxisGroup = xlPrimary
 
-    ' --- Серия 3: Tref — красная пунктирная ---
+    ' --- Серия 3: Температура задан. программы — тёмно-жёлтая пунктирная ---
     Dim s3 As Series
     Set s3 = cht.SeriesCollection.NewSeries
-    s3.Name = "3. Tref=" & Format(tRefC, "0") & "°C (задан.)"
+    s3.Name = "3. Температура задан. программы " & Format(tRefC, "0") & "°C"
     s3.Values = arrTref
     s3.XValues = timeLabels
-    s3.Format.Line.ForeColor.RGB = RGB(220, 50, 50)
+    s3.Format.Line.ForeColor.RGB = RGB(180, 140, 0)
     s3.Format.Line.DashStyle = msoLineDash
     s3.Format.Line.Weight = 1.5
     s3.MarkerStyle = xlMarkerStyleNone
     s3.AxisGroup = xlPrimary
 
-    ' --- Серия 4: F0 накопленный — зелёная, вторая ось, сглаженная ---
+    ' --- Серия 4: F0 стерил. эффект — чёрная, вторая ось, сглаженная ---
     Dim s4 As Series
     Set s4 = cht.SeriesCollection.NewSeries
     s4.Name = "4. F0 стерил. эффект (мин)"
     s4.Values = arrF0
     s4.XValues = timeLabels
-    s4.Format.Line.ForeColor.RGB = RGB(0, 160, 60)
+    s4.Format.Line.ForeColor.RGB = RGB(20, 20, 20)
     s4.Format.Line.Weight = 2.5
     s4.MarkerStyle = xlMarkerStyleNone
     s4.Smooth = True
@@ -1446,10 +1455,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .HasTitle = True
             .AxisTitle.Text = "F0 стерил. эффект (мин)"
             .AxisTitle.Font.Size = 8
-            .AxisTitle.Font.Color = RGB(0, 160, 60)
+            .AxisTitle.Font.Color = RGB(20, 20, 20)
             .MinimumScale = f0AxisMin
             .MaximumScale = f0AxisMax
-            .TickLabels.Font.Color = RGB(0, 160, 60)
+            .TickLabels.Font.Color = RGB(20, 20, 20)
             .TickLabels.Font.Size = 8
         End With
 
