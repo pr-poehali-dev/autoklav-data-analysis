@@ -1502,21 +1502,46 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     ' --- Серия 4: F0 — кривая накопления стерилизационного эффекта ---
     ' Масштабируем F0 в нижнюю зону графика (0..F0_BAND°C на левой оси)
-    ' чтобы кривая шла снизу: медленно растёт → выравнивается как на эталоне
-    Const F0_BAND As Double = 20#   ' максимальная высота кривой F0 на графике (°C)
+    ' После последнего ненулевого значения — Empty (линия не падает вниз)
+    Const F0_BAND As Double = 20#
     Dim arrF0disp() As Variant
     ReDim arrF0disp(1 To nRows)
     Dim f0Scale As Double
     If f0MaxVal > 0 Then
-        f0Scale = F0_BAND / f0MaxVal   ' коэф. масштабирования F0 → °C
+        f0Scale = F0_BAND / f0MaxVal
     Else
         f0Scale = 1
     End If
+
+    ' Находим последнюю точку где F0 > 0 — после неё ставим Empty
+    Dim f0LastRi As Long : f0LastRi = 0
+    For ri = nRows To 1 Step -1
+        If Not IsEmpty(arrF0(ri)) Then
+            If CDbl(arrF0(ri)) > 0.0001 Then
+                f0LastRi = ri
+                Exit For
+            End If
+        End If
+    Next ri
+
+    ' Находим точку начала плато F0 (где рост < 0.1% от максимума) — для подписи
+    Dim f0PlatoRi As Long : f0PlatoRi = f0LastRi
+    If f0MaxVal > 0 Then
+        Dim prevF0 As Double : prevF0 = 0
+        For ri = f0StartRi To f0LastRi
+            If Not IsEmpty(arrF0(ri)) Then
+                Dim curF0 As Double : curF0 = CDbl(arrF0(ri))
+                If curF0 >= f0MaxVal * 0.995 And f0PlatoRi = f0LastRi Then
+                    f0PlatoRi = ri
+                End If
+            End If
+        Next ri
+    End If
+
     For ri = 1 To nRows
-        If IsEmpty(arrF0(ri)) Then
+        If IsEmpty(arrF0(ri)) Or ri > f0LastRi Then
             arrF0disp(ri) = Empty
         Else
-            ' Масштабируем: накопленный F0 → нижняя зона графика
             arrF0disp(ri) = CDbl(arrF0(ri)) * f0Scale
         End If
     Next ri
@@ -1526,11 +1551,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s4.Name = "4. F0 стерил. эффект (мин)"
     s4.Values = arrF0disp
     s4.XValues = timeLabels
-    s4.Format.Line.ForeColor.RGB = RGB(20, 20, 20)
-    s4.Format.Line.Weight = 3
+    s4.Format.Line.ForeColor.RGB = RGB(100, 200, 80)   ' светло-зелёный
+    s4.Format.Line.Weight = 2.5
     s4.MarkerStyle = xlMarkerStyleNone
-    s4.Smooth = False
-    s4.AxisGroup = xlPrimary   ' на левой оси — внизу графика
+    s4.Smooth = True
+    s4.AxisGroup = xlPrimary
 
     With cht
         .HasTitle = True
@@ -1608,15 +1633,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .Legend.Font.Size = 8
         .Legend.Position = xlLegendPositionRight
 
-        ' Метки-номера на последней точке каждой линии
+        ' Метки-номера на ПЕРВОЙ точке каждой серии (слева на линии)
         Dim labelColors(1 To 4) As Long
-        labelColors(1) = RGB(30, 80, 200)   ' синий — T среды
-        labelColors(2) = RGB(210, 30, 30)   ' красный — T продукта
-        labelColors(3) = RGB(180, 140, 0)   ' тёмно-жёлтый — T задан.
-        labelColors(4) = RGB(20, 20, 20)    ' чёрный — F0
+        labelColors(1) = RGB(30, 80, 200)    ' синий — T среды
+        labelColors(2) = RGB(210, 30, 30)    ' красный — T продукта
+        labelColors(3) = RGB(180, 140, 0)    ' тёмно-жёлтый — T задан.
+        labelColors(4) = RGB(100, 200, 80)   ' светло-зелёный — F0
 
-        ' Нумерация линий: цифра на последней точке серий 1-3
-        ' Для серии 4 (F0) — пишем значение F0 на середине линии
         Dim si As Integer
         For si = 1 To 4
             On Error Resume Next
@@ -1629,37 +1652,42 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     srLbl.HasDataLabels = False
 
                     If si = 4 Then
-                        ' Серия F0: подпись "F0 = XX.XX мин" на последней точке
-                        ' (там где кривая уже выровнялась — итоговый эффект)
-                        Dim lastF0Pt As Point
-                        Set lastF0Pt = srLbl.Points(ptCount)
-                        lastF0Pt.HasDataLabel = True
-                        With lastF0Pt.DataLabel
+                        ' Серия F0: подпись над серединой плато (где кривая выровнялась)
+                        ' f0PlatoRi — первая точка плато; берём середину плато→конец
+                        Dim f0MidPt As Long
+                        f0MidPt = CLng((f0PlatoRi + f0LastRi) / 2)
+                        If f0MidPt < 1 Then f0MidPt = 1
+                        If f0MidPt > ptCount Then f0MidPt = ptCount
+                        Dim platoPoint As Point
+                        Set platoPoint = srLbl.Points(f0MidPt)
+                        platoPoint.HasDataLabel = True
+                        With platoPoint.DataLabel
                             .ShowValue = False
                             .ShowSeriesName = False
                             .ShowLegendKey = False
                             .NumberFormat = "@"
                             .Characters.Text = "F0=" & Format(f0MaxVal, "0.0") & " мин"
-                            .Font.Size = 9
+                            .Font.Size = 8
                             .Font.Bold = True
-                            .Font.Color = RGB(20, 20, 20)
+                            .Font.Color = RGB(40, 140, 40)
                             .Position = xlLabelPositionAbove
                         End With
                     Else
-                    ' Серии 1-3: цифра на последней точке
-                    Dim lastPt As Point
-                    Set lastPt = srLbl.Points(ptCount)
-                    lastPt.HasDataLabel = True
-                    With lastPt.DataLabel
-                        .ShowValue = False
-                        .ShowSeriesName = False
-                        .ShowLegendKey = False
-                        .NumberFormat = "@"
-                        .Characters.Text = CStr(si)
-                        .Font.Size = 9
-                        .Font.Bold = True
-                        .Font.Color = labelColors(si)
-                    End With
+                        ' Серии 1-3: цифра на ПЕРВОЙ видимой точке (слева)
+                        Dim firstPt As Point
+                        Set firstPt = srLbl.Points(1)
+                        firstPt.HasDataLabel = True
+                        With firstPt.DataLabel
+                            .ShowValue = False
+                            .ShowSeriesName = False
+                            .ShowLegendKey = False
+                            .NumberFormat = "@"
+                            .Characters.Text = CStr(si)
+                            .Font.Size = 8
+                            .Font.Bold = True
+                            .Font.Color = labelColors(si)
+                            .Position = xlLabelPositionLeft
+                        End With
                     End If
                 End If
             End If
