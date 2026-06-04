@@ -1501,22 +1501,30 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s3.MarkerStyle = xlMarkerStyleNone
     s3.AxisGroup = xlPrimary
 
-    ' --- Серия 4: F0 стерил. эффект — чёрная, вторая ось, сглаженная ---
+    ' --- Серия 4: F0 — горизонтальная линия внизу графика на уровне 8°C ---
+    ' Линия рисуется на первичной оси (левой), размещается в нижней зоне
+    ' Фактическое значение F0 пишется прямо на линии через DataLabel
+    Const F0_LINE_Y As Double = 8#   ' уровень линии на левой оси (низ графика)
+    Dim arrF0disp() As Variant
+    ReDim arrF0disp(1 To nRows)
+    For ri = 1 To nRows
+        If IsEmpty(arrF0(ri)) Then
+            arrF0disp(ri) = Empty
+        Else
+            arrF0disp(ri) = F0_LINE_Y   ' всегда на уровне 8°C
+        End If
+    Next ri
+
     Dim s4 As Series
     Set s4 = cht.SeriesCollection.NewSeries
     s4.Name = "4. F0 стерил. эффект (мин)"
-    s4.Values = arrF0
+    s4.Values = arrF0disp
     s4.XValues = timeLabels
     s4.Format.Line.ForeColor.RGB = RGB(20, 20, 20)
-    s4.Format.Line.Weight = 2.5
+    s4.Format.Line.Weight = 3
     s4.MarkerStyle = xlMarkerStyleNone
-    s4.Smooth = True
-    s4.AxisGroup = xlSecondary
-
-    ' Масштаб F0: минимум НЕ 0, а небольшой отступ снизу чтобы кривая
-    ' не прижималась к оси — как на эталонном графике автоклава
-    Dim f0AxisMin As Double
-    f0AxisMin = -(f0AxisMax * 0.05)   ' 5% отрицательный отступ снизу
+    s4.Smooth = False
+    s4.AxisGroup = xlPrimary   ' на левой оси — внизу графика
 
     With cht
         .HasTitle = True
@@ -1553,17 +1561,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .TickLabels.Font.Size = 9
         End With
 
-        ' Ось Y правая — F0 стерилизующий эффект (мин)
-        With .Axes(xlValue, xlSecondary)
-            .HasTitle = True
-            .AxisTitle.Text = "F0 стерил. эффект (мин)"
-            .AxisTitle.Font.Size = 8
-            .AxisTitle.Font.Color = RGB(20, 20, 20)
-            .MinimumScale = f0AxisMin
-            .MaximumScale = f0AxisMax
-            .TickLabels.Font.Color = RGB(20, 20, 20)
-            .TickLabels.Font.Size = 8
-        End With
+        ' Правая ось — скрыта (F0 теперь на левой оси как горизонтальная линия внизу)
+        On Error Resume Next
+        .HasAxis(xlValue, xlSecondary) = False
+        On Error GoTo 0
 
         ' Ось X — время HH:MM + вертикальная сетка
         Dim tickStep As Long
@@ -1608,8 +1609,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         labelColors(3) = RGB(180, 140, 0)   ' тёмно-жёлтый — T задан.
         labelColors(4) = RGB(20, 20, 20)    ' чёрный — F0
 
-        ' Нумерация линий: TextBox над последней точкой каждой серии
-        ' Используем TextBox (ChartObject) — работает во всех версиях Excel
+        ' Нумерация линий: цифра на последней точке серий 1-3
+        ' Для серии 4 (F0) — пишем значение F0 на середине линии
         Dim si As Integer
         For si = 1 To 4
             On Error Resume Next
@@ -1620,6 +1621,44 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 ptCount = srLbl.Points.Count
                 If ptCount > 0 Then
                     srLbl.HasDataLabels = False
+
+                    If si = 4 Then
+                        ' Серия F0: подпись "F0 = XX.XX мин" на средней точке линии
+                        ' Ищем середину отрезка где линия реально нарисована
+                        Dim midPt As Long : midPt = 0
+                        Dim ptI As Long
+                        For ptI = ptCount To 1 Step -1
+                            Dim ptV As Variant
+                            ptV = srLbl.Values
+                            If IsArray(ptV) Then
+                                If Not IsEmpty(ptV(ptI)) Then
+                                    If ptV(ptI) > 0 Then
+                                        midPt = ptI
+                                        Exit For
+                                    End If
+                                End If
+                            End If
+                        Next ptI
+                        ' Берём центр нарисованного отрезка
+                        Dim f0LabelPt As Long : f0LabelPt = CLng((f0StartRi + midPt) / 2)
+                        If f0LabelPt < 1 Then f0LabelPt = 1
+                        If f0LabelPt > ptCount Then f0LabelPt = ptCount
+                        Dim midPoint As Point
+                        Set midPoint = srLbl.Points(f0LabelPt)
+                        midPoint.HasDataLabel = True
+                        With midPoint.DataLabel
+                            .ShowValue = False
+                            .ShowSeriesName = False
+                            .ShowLegendKey = False
+                            .NumberFormat = "@"
+                            .Characters.Text = "F0 = " & Format(f0MaxVal, "0.00") & " мин"
+                            .Font.Size = 9
+                            .Font.Bold = True
+                            .Font.Color = RGB(20, 20, 20)
+                            .Position = xlLabelPositionAbove
+                        End With
+                    Else
+                    ' Серии 1-3: цифра на последней точке
                     Dim lastPt As Point
                     Set lastPt = srLbl.Points(ptCount)
                     lastPt.HasDataLabel = True
@@ -1633,6 +1672,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         .Font.Bold = True
                         .Font.Color = labelColors(si)
                     End With
+                    End If
                 End If
             End If
             On Error GoTo 0
