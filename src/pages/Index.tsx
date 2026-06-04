@@ -1581,7 +1581,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     lastPt.DataLabel.ShowValue = False
                     lastPt.DataLabel.ShowSeriesName = False
                     lastPt.DataLabel.ShowLegendKey = False
-                    lastPt.DataLabel.Caption = CStr(si)
+                    lastPt.DataLabel.Text = CStr(si)
                     lastPt.DataLabel.Font.Size = 9
                     lastPt.DataLabel.Font.Bold = True
                     lastPt.DataLabel.Font.Color = labelColors(si)
@@ -1790,11 +1790,13 @@ Function GetDateTimeAsDouble(ws As Worksheet, rowIdx As Long) As Double
     ' Получаем числовое значение даты
     Dim dateDbl As Double
     dateDbl = 0
+    On Error Resume Next
     If IsNumeric(dateVal) And CLng(CDbl(dateVal)) > 0 Then
         dateDbl = CDbl(CLng(CDbl(dateVal)))
     ElseIf IsDate(dateVal) Then
         dateDbl = CDbl(CDate(dateVal))
     End If
+    On Error GoTo 0
 
     ' Получаем числовое значение времени (дробь 0..1)
     Dim timeDbl As Double
