@@ -1410,33 +1410,41 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim f0MaxVal As Double : f0MaxVal = 0
 
-    ' Сначала заполняем все значения и находим первую точку T>=90
-    Dim f0StartRi As Long : f0StartRi = 0   ' индекс первой точки T>=T_MIN_STERIL
+    ' Проход 1: заполняем env/prod/tref, собираем сырые F0 во временный массив
+    Dim arrF0raw() As Double
+    ReDim arrF0raw(1 To nRows)
     For ri = 1 To nRows
         Dim rowIdx As Long : rowIdx = rStart + ri - 1
         Dim vEnv As Variant, vProd As Variant, vF0 As Variant
         vEnv  = wsData.Cells(rowIdx, 4).Value   ' D — темп.среды
         vProd = wsData.Cells(rowIdx, 5).Value   ' E — темп.продукта
-        vF0   = wsData.Cells(rowIdx, 18).Value  ' R — F0
+        vF0   = wsData.Cells(rowIdx, 18).Value  ' R — F0 (накопленный)
         arrEnv(ri)  = IIf(IsNumeric(vEnv), CDbl(vEnv), 0)
         arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
         arrTref(ri) = tRefC
-
-        Dim f0Val As Double : f0Val = IIf(IsNumeric(vF0), CDbl(vF0), 0)
-        ' Запоминаем где первый раз T продукта >= 90°C
-        If f0StartRi = 0 And arrProd(ri) >= T_MIN_STERIL Then f0StartRi = ri
-        ' Временно сохраняем все значения F0
-        arrF0(ri) = f0Val
-        If f0Val > f0MaxVal Then f0MaxVal = f0Val
+        arrF0raw(ri) = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        If arrF0raw(ri) > f0MaxVal Then f0MaxVal = arrF0raw(ri)
     Next ri
 
-    ' Второй проход: до первой точки T>=90 — Empty (линия не рисуется)
-    ' После — всё рисуется до конца данных включительно
-    If f0StartRi > 1 Then
-        For ri = 1 To f0StartRi - 1
+    ' Проход 2: находим первую точку где F0 реально начал расти (> 0)
+    ' Это точнее чем T>=90, т.к. F0 считается с первого момента накопления
+    Dim f0StartRi As Long : f0StartRi = 0
+    For ri = 1 To nRows
+        If arrF0raw(ri) > 0.0001 Then
+            f0StartRi = ri
+            Exit For
+        End If
+    Next ri
+
+    ' Заполняем arrF0: до f0StartRi — Empty (линия не рисуется совсем)
+    ' Начиная с f0StartRi и до конца — рисуем всё включая "плато" после цикла
+    For ri = 1 To nRows
+        If f0StartRi > 0 And ri >= f0StartRi Then
+            arrF0(ri) = arrF0raw(ri)
+        Else
             arrF0(ri) = Empty
-        Next ri
-    End If
+        End If
+    Next ri
 
     ' Масштаб F0: максимум = реальный макс + 5% отступ, без лишнего пространства
     Dim f0AxisMax As Double
