@@ -1136,6 +1136,9 @@ P2Next:
             durationMin = 0
         End If
 
+        ' Цикл короче 60 минут — пропускаем, не добавляем в отчёт
+        If durationMin < 60# Then GoTo NextCycle
+
         Dim tMin As Double, tMax As Double
         tMax = tMaxC
         tMin = IIf(tMinC < 999, tMinC, 0)
@@ -1225,6 +1228,7 @@ P2Next:
         resultColorArr(ci) = resultColor
 
         reportRow = reportRow + 1
+NextCycle:
     Next ci
 
     Call AddSummaryRow(wsReport, reportRow, cycleCount, cycleCount, noteArr, resultArr, resultColorArr)
