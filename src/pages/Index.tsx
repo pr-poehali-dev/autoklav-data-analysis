@@ -1268,8 +1268,15 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     tRefC As Double, topOffset As Long)
 
     ' Размер под печать A4: ширина ~ до колонки N, один график на лист
-    Const CHART_W As Long = 720   ' до колонки N (помещается при печати A4)
+    Const CHART_W As Long = 820   ' немного шире для видимости хвоста
     Const CHART_H As Long = 680   ' почти весь лист A4 по высоте
+
+    ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
+    ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
+    Const EXTRA_ROWS As Long = 60
+    Dim rEndExt As Long
+    rEndExt = rEnd + EXTRA_ROWS
+    If rEndExt > wsData.UsedRange.Rows.Count Then rEndExt = wsData.UsedRange.Rows.Count
 
     Dim co As ChartObject
     Set co = ws.ChartObjects.Add( _
@@ -1282,7 +1289,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         cht.SeriesCollection(1).Delete
     Loop
 
-    Dim nRows As Long : nRows = rEnd - rStart + 1
+    Dim nRows As Long : nRows = rEndExt - rStart + 1
 
     ' --- Метки времени на оси X (формат HH:MM) ---
     Dim timeLabels() As String
