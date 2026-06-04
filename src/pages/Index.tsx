@@ -154,9 +154,28 @@ Sub Autoclave_ProcessCSV()
         csvFileName = csvFileName & " + " & nextName
     End If
 
-    Call PrepareReportSheet(wb, wsReport, csvFileName)
-
     lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+
+    ' Определяем Tref из данных (столбец K) для строки заголовка отчёта
+    Dim trefInfoStr As String
+    Dim trefScan As Long, tKscan As Double : tKscan = 0
+    For trefScan = 2 To lastRow
+        Dim tkSv As Variant : tkSv = wsData.Cells(trefScan, 11).Value
+        If IsNumeric(tkSv) Then
+            Dim tkSd As Double : tkSd = CDbl(tkSv)
+            If tkSd >= 100# And tkSd <= 130# And tkSd > tKscan Then tKscan = tkSd
+        End If
+    Next trefScan
+    Dim trefNorm As Double
+    If tKscan >= 118# Then
+        trefNorm = 5.5 : trefInfoStr = "Стерилизация: Tref = 120C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
+    ElseIf tKscan >= 100# Then
+        trefNorm = 3# : trefInfoStr = "Стерилизация: Tref = 115C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 3"
+    Else
+        trefNorm = 5.5 : trefInfoStr = "Стерилизация: Tref = " & Format(T_REF, "0.0") & "C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
+    End If
+
+    Call PrepareReportSheet(wb, wsReport, csvFileName, trefInfoStr)
     Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow)
     Call FormatReportSheet(wsReport)
     Call BuildTemperatureChart(wb, wsData, lastRow, csvFileName)
@@ -796,7 +815,7 @@ End Sub
 '-------------------------------------------------------------
 ' Подготовка листа F0_Report
 '-------------------------------------------------------------
-Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName As String)
+Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName As String, trefInfo As String)
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
@@ -824,7 +843,7 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         .Cells(2, 1).Font.Bold = True
         .Range("A2:H2").Merge
 
-        .Cells(3, 1).Value = "Стерилизация: Tref = 121.1C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
+        .Cells(3, 1).Value = trefInfo
         .Cells(3, 1).Font.Color = RGB(100, 120, 140)
         .Range("A3:H3").Merge
 
@@ -1381,7 +1400,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Next ri
 
     ' --- Данные серий ---
-    Dim arrEnv() As Double, arrProd() As Double, arrF0() As Double, arrTref() As Double
+    ' arrF0 — Variant чтобы хранить Empty (разрыв линии до начала накопления)
+    Dim arrEnv() As Double, arrProd() As Double, arrTref() As Double
+    Dim arrF0() As Variant
     ReDim arrEnv(1 To nRows)
     ReDim arrProd(1 To nRows)
     ReDim arrF0(1 To nRows)
@@ -1389,7 +1410,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim f0MaxVal As Double : f0MaxVal = 0
 
-    Dim f0Started As Boolean : f0Started = False
     For ri = 1 To nRows
         Dim rowIdx As Long : rowIdx = rStart + ri - 1
         Dim vEnv As Variant, vProd As Variant, vF0 As Variant
@@ -1398,27 +1418,28 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         vF0   = wsData.Cells(rowIdx, 18).Value  ' R — F0
         arrEnv(ri)  = IIf(IsNumeric(vEnv), CDbl(vEnv), 0)
         arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
-        ' F0: рисуем только с момента когда начало накапливаться (> 0.0001)
-        Dim f0Val As Double : f0Val = IIf(IsNumeric(vF0), CDbl(vF0), 0)
-        If f0Val > 0.0001 Then f0Started = True
-        If f0Started Then
-            arrF0(ri) = f0Val
-        Else
-            arrF0(ri) = 0   ' до начала стерилизации — ноль (линия прижата к оси)
-        End If
         arrTref(ri) = tRefC
-        If arrF0(ri) > f0MaxVal Then f0MaxVal = arrF0(ri)
+
+        ' F0: рисуем только с момента когда T продукта достигла T_MIN_STERIL (90°C)
+        ' До этого — Empty (разрыв линии, ничего не рисуется)
+        Dim tProdVal As Double : tProdVal = arrProd(ri)
+        Dim f0Val As Double : f0Val = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        If tProdVal >= T_MIN_STERIL Then
+            arrF0(ri) = f0Val
+            If f0Val > f0MaxVal Then f0MaxVal = f0Val
+        Else
+            arrF0(ri) = Empty   ' линия не рисуется до достижения 90°C
+        End If
     Next ri
 
-    ' Масштаб F0: максимум = реальный макс + 10%, не растягиваем пустую шкалу
+    ' Масштаб F0: максимум строго по реальному значению + 10%, без растяжения
     Dim f0AxisMax As Double
     If f0MaxVal <= 0 Then
         f0AxisMax = 1
     Else
-        ' Округляем до ближайшего кратного 5 сверху (реальный макс + 10%)
+        ' Округляем до ближайшего кратного 5 сверху
         Dim f0Raw As Double : f0Raw = f0MaxVal * 1.1
         f0AxisMax = CDbl(Int(f0Raw / 5 + 1) * 5)
-        ' Минимум 5 чтобы шкала не сжималась до 1
         If f0AxisMax < 5 Then f0AxisMax = 5
     End If
 
@@ -1628,6 +1649,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim cyStart As Long, cyEnd As Long
     Dim endCntCy As Integer : endCntCy = 0
     Dim tKmaxCy As Double : tKmaxCy = 0
+    Dim tProdMaxCy As Double : tProdMaxCy = 0  ' MAX T продукта за цикл
     Dim cycIdx As Integer : cycIdx = 0
     Dim topOffset As Long : topOffset = 30
 
@@ -1644,7 +1666,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
         If Not inCyc Then
             If cycActCy Then
-                inCyc = True : cyStart = p : endCntCy = 0 : tKmaxCy = 0
+                inCyc = True : cyStart = p : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
             End If
         Else
             ' MAX заданной температуры (столбец K) для Tref графика
@@ -1652,6 +1674,12 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
             If IsNumeric(tkRvCy) Then
                 Dim tkVCy As Double : tkVCy = CDbl(tkRvCy)
                 If tkVCy >= 100# And tkVCy <= 130# And tkVCy > tKmaxCy Then tKmaxCy = tkVCy
+            End If
+            ' MAX T продукта (столбец E)
+            Dim tpRvCy As Variant : tpRvCy = wsData.Cells(p, 5).Value
+            If IsNumeric(tpRvCy) Then
+                Dim tpVCy As Double : tpVCy = CDbl(tpRvCy)
+                If tpVCy > tProdMaxCy Then tProdMaxCy = tpVCy
             End If
 
             If Not cycActCy Then
@@ -1675,11 +1703,14 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                     tRefCy = T_REF
                 End If
 
-                cycIdx = cycIdx + 1
-                Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                topOffset = topOffset + 510  ' 490 (высота) + 20 (отступ между графиками)
+                ' Не строить график если T продукта не поднималась до 100°C — прогрев без стерилизации
+                If tProdMaxCy >= T_PEAK_STERIL Then
+                    cycIdx = cycIdx + 1
+                    Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
+                    topOffset = topOffset + 510  ' 490 (высота) + 20 (отступ между графиками)
+                End If
 
-                inCyc = False : endCntCy = 0 : tKmaxCy = 0
+                inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
             End If
         End If
 ChartNext:
