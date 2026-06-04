@@ -1565,33 +1565,34 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         labelColors(3) = RGB(180, 140, 0)   ' тёмно-жёлтый — T задан.
         labelColors(4) = RGB(20, 20, 20)    ' чёрный — F0
 
+        ' Нумерация линий: TextBox над последней точкой каждой серии
+        ' Используем TextBox (ChartObject) — работает во всех версиях Excel
         Dim si As Integer
         For si = 1 To 4
+            On Error Resume Next
             If si <= .SeriesCollection.Count Then
                 Dim srLbl As Series
                 Set srLbl = .SeriesCollection(si)
                 Dim ptCount As Long
                 ptCount = srLbl.Points.Count
                 If ptCount > 0 Then
-                    ' Убираем все лейблы, оставляем только последнюю точку
                     srLbl.HasDataLabels = False
                     Dim lastPt As Point
                     Set lastPt = srLbl.Points(ptCount)
                     lastPt.HasDataLabel = True
-                    lastPt.DataLabel.ShowValue = False
-                    lastPt.DataLabel.ShowSeriesName = False
-                    lastPt.DataLabel.ShowLegendKey = False
-                    lastPt.DataLabel.Text = CStr(si)
-                    lastPt.DataLabel.Font.Size = 9
-                    lastPt.DataLabel.Font.Bold = True
-                    lastPt.DataLabel.Font.Color = labelColors(si)
-                    lastPt.DataLabel.Interior.Color = RGB(255, 255, 255)
-                    lastPt.DataLabel.Border.Color = labelColors(si)
-                    lastPt.DataLabel.Border.LineStyle = xlContinuous
-                    lastPt.DataLabel.Border.Weight = xlThin
-                    lastPt.DataLabel.Position = xlLabelPositionRight
+                    With lastPt.DataLabel
+                        .ShowValue = False
+                        .ShowSeriesName = False
+                        .ShowLegendKey = False
+                        .NumberFormat = "@"
+                        .Characters.Text = CStr(si)
+                        .Font.Size = 9
+                        .Font.Bold = True
+                        .Font.Color = labelColors(si)
+                    End With
                 End If
             End If
+            On Error GoTo 0
         Next si
     End With
 End Sub
