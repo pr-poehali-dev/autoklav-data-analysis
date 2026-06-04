@@ -1214,8 +1214,10 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Cells(reportRow, 4).Value = ""
         .Cells(reportRow, 5).Value = "=MAX(E6:E" & lastDataRow & ")"
         .Cells(reportRow, 5).Font.Bold = True
-        ' F0 не суммируется — у каждой программы своё значение
-        .Cells(reportRow, 7).Value = ""
+        ' F0: максимальный среди всех циклов (итоговая строка)
+        .Cells(reportRow, 7).Value = "=MAX(G6:G" & lastDataRow & ")"
+        .Cells(reportRow, 7).NumberFormat = "0.0000"
+        .Cells(reportRow, 7).Font.Bold = True
         .Cells(reportRow, 8).Value = "Всего циклов: " & totalCycles
         .Cells(reportRow, 8).Font.Bold = True
         .Rows(reportRow).Interior.Color = RGB(220, 235, 248)
@@ -1267,9 +1269,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     rStart As Long, rEnd As Long, cycleIdx As Integer, _
     tRefC As Double, topOffset As Long)
 
-    ' Размер под печать A4: ширина ~ до колонки N, один график на лист
-    Const CHART_W As Long = 820   ' немного шире для видимости хвоста
-    Const CHART_H As Long = 680   ' почти весь лист A4 по высоте
+    ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
+    ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
+    Const CHART_W As Long = 820   ' ширина — до колонки N
+    Const CHART_H As Long = 490   ' высота ~17 см — ровно один A4
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1568,7 +1571,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
                 cycIdx = cycIdx + 1
                 Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                topOffset = topOffset + 700
+                topOffset = topOffset + 510  ' 490 (высота) + 20 (отступ между графиками)
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0
             End If
