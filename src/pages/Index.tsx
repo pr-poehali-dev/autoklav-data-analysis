@@ -15,9 +15,9 @@ Option Explicit
 Const T_REF As Double = 121.1   ' Эталонная температура (C)
 Const Z_FACTOR As Double = 10#   ' Z-фактор (C)
 Const T_START As Double = 30#    ' Порог начала цикла (C)
-' Порог накопления F0. По данным автоклава фактор стерилизации начинает
-' накапливаться примерно с 90°C (вклад < 100°C мал, но даёт плавную кривую).
-Const T_MIN_STERIL As Double = 90#   ' Минимум для счёта F0
+' Порог накопления F0. По реальным данным автоклава фактор стерилизации
+' начинает накапливаться с 91°C (соответствует поведению прибора).
+Const T_MIN_STERIL As Double = 91#   ' Минимум для счёта F0
 ' Порог "пика" — цикл считается стерилизационным если достиг этой T
 Const T_PEAK_STERIL As Double = 100# ' Подтверждение стерилизации
 
@@ -1350,53 +1350,58 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         f0AxisMax = CDbl(CLng(f0MaxVal * 1.2 / 10 + 1) * 10)
     End If
 
-    ' --- Серия 1: T° продукта — бирюзовая, сглаженная ---
+    ' --- Серия 1: Температура среды — тёмно-синяя ---
     Dim s1 As Series
     Set s1 = cht.SeriesCollection.NewSeries
-    s1.Name = "T° продукта"
-    s1.Values = arrProd
+    s1.Name = "1. T среды (°C)"
+    s1.Values = arrEnv
     s1.XValues = timeLabels
-    s1.Format.Line.ForeColor.RGB = RGB(0, 210, 200)
-    s1.Format.Line.Weight = 2.5
+    s1.Format.Line.ForeColor.RGB = RGB(30, 80, 200)
+    s1.Format.Line.Weight = 2
     s1.MarkerStyle = xlMarkerStyleNone
-    s1.Smooth = True
+    s1.Smooth = False
     s1.AxisGroup = xlPrimary
 
-    ' --- Серия 2: Температура среды — жёлтая ---
+    ' --- Серия 2: T° продукта — бирюзовая, сглаженная ---
     Dim s2 As Series
     Set s2 = cht.SeriesCollection.NewSeries
-    s2.Name = "Температура"
-    s2.Values = arrEnv
+    s2.Name = "2. T продукта (°C)"
+    s2.Values = arrProd
     s2.XValues = timeLabels
-    s2.Format.Line.ForeColor.RGB = RGB(220, 190, 0)
-    s2.Format.Line.Weight = 2
+    s2.Format.Line.ForeColor.RGB = RGB(0, 180, 180)
+    s2.Format.Line.Weight = 2.5
     s2.MarkerStyle = xlMarkerStyleNone
-    s2.Smooth = False  ' среда реагирует быстро — не сглаживаем
+    s2.Smooth = True
     s2.AxisGroup = xlPrimary
 
-    ' --- Серия 3: F0 накопленный — оранжевая, вторая ось, сглаженная ---
+    ' --- Серия 3: Tref — красная пунктирная ---
     Dim s3 As Series
     Set s3 = cht.SeriesCollection.NewSeries
-    s3.Name = "F0 накопл."
-    s3.Values = arrF0
+    s3.Name = "3. Tref=" & Format(tRefC, "0") & "°C (задан.)"
+    s3.Values = arrTref
     s3.XValues = timeLabels
-    s3.Format.Line.ForeColor.RGB = RGB(255, 100, 0)
-    s3.Format.Line.Weight = 2.5
+    s3.Format.Line.ForeColor.RGB = RGB(220, 50, 50)
+    s3.Format.Line.DashStyle = msoLineDash
+    s3.Format.Line.Weight = 1.5
     s3.MarkerStyle = xlMarkerStyleNone
-    s3.Smooth = True   ' сглаженная кривая
-    s3.AxisGroup = xlSecondary
+    s3.AxisGroup = xlPrimary
 
-    ' --- Серия 4: Tref — красная пунктирная ---
+    ' --- Серия 4: F0 накопленный — зелёная, вторая ось, сглаженная ---
     Dim s4 As Series
     Set s4 = cht.SeriesCollection.NewSeries
-    s4.Name = "Tref=" & Format(tRefC, "0") & "C"
-    s4.Values = arrTref
+    s4.Name = "4. F0 стерил. эффект (мин)"
+    s4.Values = arrF0
     s4.XValues = timeLabels
-    s4.Format.Line.ForeColor.RGB = RGB(220, 50, 50)
-    s4.Format.Line.DashStyle = msoLineDash
-    s4.Format.Line.Weight = 1.5
+    s4.Format.Line.ForeColor.RGB = RGB(0, 160, 60)
+    s4.Format.Line.Weight = 2.5
     s4.MarkerStyle = xlMarkerStyleNone
-    s4.AxisGroup = xlPrimary
+    s4.Smooth = True
+    s4.AxisGroup = xlSecondary
+
+    ' Масштаб F0: минимум НЕ 0, а небольшой отступ снизу чтобы кривая
+    ' не прижималась к оси — как на эталонном графике автоклава
+    Dim f0AxisMin As Double
+    f0AxisMin = -(f0AxisMax * 0.05)   ' 5% отрицательный отступ снизу
 
     With cht
         .HasTitle = True
@@ -1411,55 +1416,75 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .ChartArea.Interior.Color = RGB(250, 252, 255)
         .ChartArea.Border.Color = RGB(180, 200, 220)
 
-        ' Ось Y (температура)
+        ' Ось Y левая — температура (°C)
         With .Axes(xlValue, xlPrimary)
-            .HasTitle = False
+            .HasTitle = True
+            .AxisTitle.Text = "Температура (°C)"
+            .AxisTitle.Font.Size = 8
+            .AxisTitle.Font.Color = RGB(30, 80, 200)
             .MinimumScale = 0
             .MaximumScale = 150
             .MajorUnit = 25
-            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(210, 220, 230)
-            .MajorGridlines.Format.Line.DashStyle = msoLineDash
-            .TickLabels.Font.Color = RGB(50, 50, 50)
+            ' Горизонтальная сетка — мелкий пунктир
+            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(200, 210, 225)
+            .MajorGridlines.Format.Line.DashStyle = msoLineSysDash
+            .MajorGridlines.Format.Line.Weight = 0.5
+            .HasMinorGridlines = True
+            .MinorGridlines.Format.Line.ForeColor.RGB = RGB(230, 235, 242)
+            .MinorGridlines.Format.Line.DashStyle = msoLineSysDot
+            .MinorGridlines.Format.Line.Weight = 0.25
+            .MinorUnit = 5
+            .TickLabels.Font.Color = RGB(30, 80, 200)
             .TickLabels.Font.Size = 9
         End With
 
-        ' Ось F0 (вторичная) — фиксируем шкалу от 0 до max чтобы не прыгала
+        ' Ось Y правая — F0 стерилизующий эффект (мин)
         With .Axes(xlValue, xlSecondary)
-            .HasTitle = False
-            .MinimumScale = 0
+            .HasTitle = True
+            .AxisTitle.Text = "F0 стерил. эффект (мин)"
+            .AxisTitle.Font.Size = 8
+            .AxisTitle.Font.Color = RGB(0, 160, 60)
+            .MinimumScale = f0AxisMin
             .MaximumScale = f0AxisMax
-            .TickLabels.Font.Color = RGB(200, 90, 0)
+            .TickLabels.Font.Color = RGB(0, 160, 60)
             .TickLabels.Font.Size = 8
         End With
 
-        ' Ось X — время HH:MM
-        ' Цель: ~20-30 меток на графике независимо от количества строк
+        ' Ось X — время HH:MM + вертикальная сетка
+        Dim tickStep As Long
+        If nRows > 3000 Then
+            tickStep = CLng(nRows / 25)
+        ElseIf nRows > 600 Then
+            tickStep = CLng(nRows / 20)
+        ElseIf nRows > 120 Then
+            tickStep = CLng(nRows / 15)
+        ElseIf nRows > 30 Then
+            tickStep = CLng(nRows / 10)
+        Else
+            tickStep = 1
+        End If
+        If tickStep < 1 Then tickStep = 1
+
         With .Axes(xlCategory)
             .HasTitle = False
             .TickLabels.Font.Size = 7
             .TickLabels.Font.Color = RGB(50, 50, 50)
-            Dim tickStep As Long
-            If nRows > 3000 Then
-                tickStep = CLng(nRows / 25)      ' ~25 меток
-            ElseIf nRows > 600 Then
-                tickStep = CLng(nRows / 20)      ' ~20 меток
-            ElseIf nRows > 120 Then
-                tickStep = CLng(nRows / 15)      ' ~15 меток
-            ElseIf nRows > 30 Then
-                tickStep = CLng(nRows / 10)      ' ~10 меток
-            Else
-                tickStep = 1
-            End If
-            If tickStep < 1 Then tickStep = 1
             .TickLabelSpacing = tickStep
             .TickMarkSpacing = tickStep
+            ' Вертикальная сетка по времени — мелкий пунктир снизу вверх
+            .HasMajorGridlines = True
+            .MajorGridlines.Format.Line.ForeColor.RGB = RGB(200, 210, 225)
+            .MajorGridlines.Format.Line.DashStyle = msoLineSysDash
+            .MajorGridlines.Format.Line.Weight = 0.5
+            .MajorTickMark = xlTickMarkCross
         End With
 
+        ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
         .Legend.Interior.Color = RGB(255, 255, 255)
         .Legend.Font.Color = RGB(30, 30, 30)
-        .Legend.Font.Size = 9
-        .Legend.Position = xlLegendPositionTop
+        .Legend.Font.Size = 8
+        .Legend.Position = xlLegendPositionRight
     End With
 End Sub
 
