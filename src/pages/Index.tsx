@@ -872,6 +872,25 @@ End Sub
 ' Вспомогательная: возвращает Δt в минутах между строками r1 и r2
 '-------------------------------------------------------------
 '-------------------------------------------------------------
+'-------------------------------------------------------------
+' Форматирует секунды в строку "Xч YYм" или "YYм"
+'-------------------------------------------------------------
+Function FormatMinSec(totalSec As Double) As String
+    If totalSec <= 0 Then
+        FormatMinSec = "—"
+        Exit Function
+    End If
+    Dim totalMin As Long : totalMin = CLng(Int(totalSec / 60))
+    Dim hrs As Long : hrs = Int(totalMin / 60)
+    Dim mins As Long : mins = totalMin - hrs * 60
+    If hrs > 0 Then
+        FormatMinSec = CStr(hrs) & "ч " & Format(mins, "00") & "м"
+    Else
+        FormatMinSec = CStr(mins) & "м"
+    End If
+End Function
+
+'-------------------------------------------------------------
 ' Вспомогательная: абсолютное время строки в секундах от 01.01.1900
 ' Используется для надёжного расчёта Δt через границы суток и файлов
 '-------------------------------------------------------------
@@ -1384,6 +1403,51 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim nRows As Long : nRows = rEndExt - rStart + 1
 
+    ' ================================================================
+    ' Расчёт фаз цикла по температуре среды (столбец D):
+    '   Нагрев     — от rStart до первого момента T >= tRefC - 2
+    '   Удержание  — пока T >= tRefC - 2
+    '   Охлаждение — после последнего момента T >= tRefC - 2 до rEnd
+    ' Время фаз вычисляется как разность абсолютных секунд строк
+    ' ================================================================
+    Dim phaseHeatSec As Double  : phaseHeatSec = 0
+    Dim phaseHoldSec As Double  : phaseHoldSec = 0
+    Dim phaseCoolSec As Double  : phaseCoolSec = 0
+
+    Dim tHoldMin As Double : tHoldMin = tRefC - 2#   ' порог удержания
+
+    ' Находим первую строку где T среды >= tHoldMin (конец нагрева)
+    Dim rHoldStart As Long : rHoldStart = 0
+    Dim rHoldEnd   As Long : rHoldEnd   = 0
+    Dim phRi As Long
+    For phRi = rStart To rEnd
+        Dim tEnvPh As Variant : tEnvPh = wsData.Cells(phRi, 4).Value
+        If IsNumeric(tEnvPh) Then
+            If CDbl(tEnvPh) >= tHoldMin Then
+                If rHoldStart = 0 Then rHoldStart = phRi
+                rHoldEnd = phRi
+            End If
+        End If
+    Next phRi
+
+    ' Считаем секунды каждой фазы
+    If rHoldStart > 0 Then
+        ' Нагрев: rStart → rHoldStart
+        Dim secStart As Double : secStart = RowAbsSeconds(wsData, rStart)
+        Dim secHoldS As Double : secHoldS = RowAbsSeconds(wsData, rHoldStart)
+        Dim secHoldE As Double : secHoldE = RowAbsSeconds(wsData, rHoldEnd)
+        Dim secEnd   As Double : secEnd   = RowAbsSeconds(wsData, rEnd)
+        If secHoldS > secStart Then phaseHeatSec = secHoldS - secStart
+        If secHoldE > secHoldS Then phaseHoldSec = secHoldE - secHoldS
+        If secEnd   > secHoldE Then phaseCoolSec = secEnd   - secHoldE
+    End If
+
+    ' Функция форматирования секунд → "Xч YYм"
+    Dim heatStr As String, holdStr As String, coolStr As String
+    heatStr = FormatMinSec(phaseHeatSec)
+    holdStr = FormatMinSec(phaseHoldSec)
+    coolStr = FormatMinSec(phaseCoolSec)
+
     ' --- Метки времени на оси X (формат HH:MM) ---
     Dim timeLabels() As String
     ReDim timeLabels(1 To nRows)
@@ -1693,6 +1757,48 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             End If
             On Error GoTo 0
         Next si
+
+        ' Текстовый блок с временем фаз — под легендой справа
+        ' Показывает: Нагрев / Удержание / Охлаждение по T среды
+        If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
+            Dim phaseText As String
+            phaseText = "Нагрев:       " & heatStr & Chr(10) & _
+                        "Удержание: " & holdStr & Chr(10) & _
+                        "Охлаждение: " & coolStr
+
+            ' Размещаем TextBox правее области построения (рядом с легендой)
+            Dim tbLeft As Double : tbLeft = co.Left + co.Width - 145
+            Dim tbTop  As Double : tbTop  = co.Top + co.Height - 75
+            Dim tb As Shape
+            Set tb = ws.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, tbLeft, tbTop, 140, 65)
+            With tb
+                .Line.Visible = msoTrue
+                .Line.ForeColor.RGB = RGB(200, 200, 200)
+                .Fill.ForeColor.RGB = RGB(250, 252, 255)
+                .Fill.Solid
+                With .TextFrame2.TextRange
+                    .Text = phaseText
+                    .Font.Size = 8
+                    .Font.Bold = False
+                    .Font.Fill.ForeColor.RGB = RGB(40, 40, 40)
+                    ' Нагрев — синий
+                    .Characters(1, 8).Font.Fill.ForeColor.RGB = RGB(30, 80, 200)
+                    .Characters(1, 8).Font.Bold = True
+                    ' Удержание — тёмно-красный
+                    Dim holdStart2 As Integer : holdStart2 = Len("Нагрев:       " & heatStr & Chr(10)) + 1
+                    .Characters(holdStart2, 10).Font.Fill.ForeColor.RGB = RGB(180, 40, 40)
+                    .Characters(holdStart2, 10).Font.Bold = True
+                    ' Охлаждение — синий
+                    Dim coolStart2 As Integer
+                    coolStart2 = holdStart2 + Len("Удержание: " & holdStr & Chr(10))
+                    .Characters(coolStart2, 11).Font.Fill.ForeColor.RGB = RGB(30, 80, 200)
+                    .Characters(coolStart2, 11).Font.Bold = True
+                End With
+                .TextFrame.AutoSize = True
+            End With
+        End If
+
     End With
 End Sub
 
