@@ -963,11 +963,20 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Const WATER_ON As Double = 9#       ' Уровень воды для старта цикла
     Const PRESS_ON As Double = 0.7      ' Давление для старта (>0.7 бар)
     Const WATER_OFF As Double = 9#      ' Слив воды — конец цикла
+    Const PRESS_OFF As Double = 0.1     ' Давление сброшено — конец цикла
+    Const TEMP_COLD As Double = 50#     ' Температура "холодного" автоклава — конец цикла
+    ' Сколько строк подряд должен держаться признак конца (защита от шума)
+    Const END_COUNT_W As Integer = 3    ' строк по воде
+    Const END_COUNT_P As Integer = 10   ' строк по давлению
+    Const END_COUNT_T As Integer = 15   ' строк по температуре
 
     ' ================================================================
-    ' ПРОХОД 1: находим границы циклов ПО УРОВНЮ ВОДЫ + ДАВЛЕНИЮ
-    '   Старт: вода > 9 И давление > 0.7 (автоклав наполнен и под давлением)
-    '   Конец: вода опустилась < 9 (слив) — программа завершена
+    ' ПРОХОД 1: находим границы циклов
+    '   Старт: вода > 9 И давление > 0.7
+    '   Конец (любое из трёх):
+    '     1) вода < 9 на 3+ строки
+    '     2) давление < 0.1 на 10+ строк подряд
+    '     3) температура продукта < 50°C на 15+ строк подряд
     ' ================================================================
     Dim cycleCount As Integer
     cycleCount = 0
@@ -977,9 +986,11 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
     Dim inCyc As Boolean
     Dim cyStart As Long
-    Dim lowCount As Integer
-    Dim tKmaxP1 As Double   ' MAX заданной температуры за цикл (столбец K)
-    inCyc = False : lowCount = 0 : tKmaxP1 = 0
+    Dim lowCount As Integer     ' счётчик строк вода < 9
+    Dim pressLowCnt As Integer  ' счётчик строк давление < 0.1
+    Dim tempColdCnt As Integer  ' счётчик строк T < 50
+    Dim tKmaxP1 As Double       ' MAX заданной температуры за цикл (столбец K)
+    inCyc = False : lowCount = 0 : pressLowCnt = 0 : tempColdCnt = 0 : tKmaxP1 = 0
 
     Dim p As Long
     For p = 2 To lastRow
@@ -995,7 +1006,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             If waterLvl > WATER_ON And pressLvl > PRESS_ON Then
                 inCyc = True
                 cyStart = p
-                lowCount = 0
+                lowCount = 0 : pressLowCnt = 0 : tempColdCnt = 0
                 tKmaxP1 = 0
             End If
         Else
@@ -1009,17 +1020,47 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 End If
             End If
 
+            ' --- Счётчик 1: вода ниже порога ---
             If waterLvl < WATER_OFF Then
                 lowCount = lowCount + 1
             Else
                 lowCount = 0
             End If
 
+            ' --- Счётчик 2: давление сброшено ---
+            If pressLvl < PRESS_OFF Then
+                pressLowCnt = pressLowCnt + 1
+            Else
+                pressLowCnt = 0
+            End If
+
+            ' --- Счётчик 3: температура продукта холодная ---
+            Dim tpRvP1 As Variant
+            tpRvP1 = wsData.Cells(p, COL_TEMP_PROD).Value
+            If IsNumeric(tpRvP1) And CDbl(tpRvP1) < TEMP_COLD Then
+                tempColdCnt = tempColdCnt + 1
+            Else
+                tempColdCnt = 0
+            End If
+
             Dim cycEnd1 As Boolean
-            cycEnd1 = (lowCount >= 3) Or (p = lastRow)
+            cycEnd1 = (lowCount >= END_COUNT_W) Or _
+                      (pressLowCnt >= END_COUNT_P) Or _
+                      (tempColdCnt >= END_COUNT_T) Or _
+                      (p = lastRow)
+
             If cycEnd1 Then
+                ' Определяем реальный конец (последняя "горячая" строка перед сбросом)
                 Dim realEnd As Long
-                realEnd = IIf(lowCount >= 3, p - lowCount + 1, p)
+                If lowCount >= END_COUNT_W Then
+                    realEnd = p - lowCount + 1
+                ElseIf pressLowCnt >= END_COUNT_P Then
+                    realEnd = p - pressLowCnt + 1
+                ElseIf tempColdCnt >= END_COUNT_T Then
+                    realEnd = p - tempColdCnt + 1
+                Else
+                    realEnd = p
+                End If
                 If realEnd < cyStart Then realEnd = cyStart
 
                 If cycleCount < 500 Then
@@ -1035,7 +1076,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                         cycleTref(cycleCount) = T_REF  ' 121.1 если K не определён
                     End If
                 End If
-                inCyc = False : lowCount = 0 : tKmaxP1 = 0
+                inCyc = False : lowCount = 0 : pressLowCnt = 0 : tempColdCnt = 0 : tKmaxP1 = 0
             End If
         End If
 P1Next:
