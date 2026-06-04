@@ -1442,13 +1442,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
     Next ri
 
-    ' Заполняем arrF0:
+    ' Заполняем arrF0: реальные накопленные значения F0 из данных
     ' - до f0StartRi — Empty (линия не рисуется)
-    ' - с f0StartRi до конца — горизонтальная линия на уровне итогового f0MaxVal
-    '   (не накопленная кривая, а плоская полоса показывающая достигнутый результат)
+    ' - после — реальное накопленное значение (растёт, потом выравнивается)
     For ri = 1 To nRows
         If f0StartRi > 0 And ri >= f0StartRi Then
-            arrF0(ri) = f0MaxVal
+            arrF0(ri) = arrF0raw(ri)
         Else
             arrF0(ri) = Empty
         End If
@@ -1501,17 +1500,24 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s3.MarkerStyle = xlMarkerStyleNone
     s3.AxisGroup = xlPrimary
 
-    ' --- Серия 4: F0 — горизонтальная линия внизу графика на уровне 8°C ---
-    ' Линия рисуется на первичной оси (левой), размещается в нижней зоне
-    ' Фактическое значение F0 пишется прямо на линии через DataLabel
-    Const F0_LINE_Y As Double = 8#   ' уровень линии на левой оси (низ графика)
+    ' --- Серия 4: F0 — кривая накопления стерилизационного эффекта ---
+    ' Масштабируем F0 в нижнюю зону графика (0..F0_BAND°C на левой оси)
+    ' чтобы кривая шла снизу: медленно растёт → выравнивается как на эталоне
+    Const F0_BAND As Double = 20#   ' максимальная высота кривой F0 на графике (°C)
     Dim arrF0disp() As Variant
     ReDim arrF0disp(1 To nRows)
+    Dim f0Scale As Double
+    If f0MaxVal > 0 Then
+        f0Scale = F0_BAND / f0MaxVal   ' коэф. масштабирования F0 → °C
+    Else
+        f0Scale = 1
+    End If
     For ri = 1 To nRows
         If IsEmpty(arrF0(ri)) Then
             arrF0disp(ri) = Empty
         Else
-            arrF0disp(ri) = F0_LINE_Y   ' всегда на уровне 8°C
+            ' Масштабируем: накопленный F0 → нижняя зона графика
+            arrF0disp(ri) = CDbl(arrF0(ri)) * f0Scale
         End If
     Next ri
 
@@ -1623,35 +1629,17 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     srLbl.HasDataLabels = False
 
                     If si = 4 Then
-                        ' Серия F0: подпись "F0 = XX.XX мин" на средней точке линии
-                        ' Ищем середину отрезка где линия реально нарисована
-                        Dim midPt As Long : midPt = 0
-                        Dim ptI As Long
-                        For ptI = ptCount To 1 Step -1
-                            Dim ptV As Variant
-                            ptV = srLbl.Values
-                            If IsArray(ptV) Then
-                                If Not IsEmpty(ptV(ptI)) Then
-                                    If ptV(ptI) > 0 Then
-                                        midPt = ptI
-                                        Exit For
-                                    End If
-                                End If
-                            End If
-                        Next ptI
-                        ' Берём центр нарисованного отрезка
-                        Dim f0LabelPt As Long : f0LabelPt = CLng((f0StartRi + midPt) / 2)
-                        If f0LabelPt < 1 Then f0LabelPt = 1
-                        If f0LabelPt > ptCount Then f0LabelPt = ptCount
-                        Dim midPoint As Point
-                        Set midPoint = srLbl.Points(f0LabelPt)
-                        midPoint.HasDataLabel = True
-                        With midPoint.DataLabel
+                        ' Серия F0: подпись "F0 = XX.XX мин" на последней точке
+                        ' (там где кривая уже выровнялась — итоговый эффект)
+                        Dim lastF0Pt As Point
+                        Set lastF0Pt = srLbl.Points(ptCount)
+                        lastF0Pt.HasDataLabel = True
+                        With lastF0Pt.DataLabel
                             .ShowValue = False
                             .ShowSeriesName = False
                             .ShowLegendKey = False
                             .NumberFormat = "@"
-                            .Characters.Text = "F0 = " & Format(f0MaxVal, "0.00") & " мин"
+                            .Characters.Text = "F0=" & Format(f0MaxVal, "0.0") & " мин"
                             .Font.Size = 9
                             .Font.Bold = True
                             .Font.Color = RGB(20, 20, 20)
