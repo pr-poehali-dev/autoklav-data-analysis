@@ -959,17 +959,16 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Const COL_TREF As Integer = 11
     Const COL_F0 As Integer = 18
 
-    ' Пороги начала/конца цикла по показаниям автоклава
-    ' Цикл активен пока давление >= 6.0 БАР И уровень воды >= 6.0
-    ' Старт: оба параметра достигли порога
-    ' Конец: оба параметра упали ниже порога (5+ строк подряд — защита от шума)
-    Const CYCLE_THRESH As Double = 6#   ' порог давления и воды
+    ' Пороги начала/конца цикла — ТОЛЬКО по давлению (вода может не сбрасываться)
+    ' Старт: давление >= 6.0 бар
+    ' Конец: давление < 6.0 бар — 5 строк подряд (защита от кратких колебаний)
+    Const CYCLE_THRESH As Double = 6#   ' порог давления
     Const END_COUNT As Integer = 5      ' строк подряд ниже порога = конец цикла
 
     ' ================================================================
-    ' ПРОХОД 1: находим границы циклов
-    '   Старт: давление >= 6.0 И вода >= 6.0
-    '   Конец: давление < 6.0 И вода < 6.0 — 5 строк подряд
+    ' ПРОХОД 1: находим границы циклов ТОЛЬКО ПО ДАВЛЕНИЮ
+    '   Старт: давление >= 6.0 бар
+    '   Конец: давление < 6.0 бар — 5 строк подряд
     ' ================================================================
     Dim cycleCount As Integer
     cycleCount = 0
@@ -989,13 +988,12 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
         wRv  = wsData.Cells(p, COL_WATER).Value
         prRv = wsData.Cells(p, COL_PRESSURE).Value
 
-        Dim waterLvl As Double, pressLvl As Double
-        waterLvl = IIf(IsNumeric(wRv),  CDbl(wRv),  0)
+        Dim pressLvl As Double
         pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
-        ' Признак "активного" состояния автоклава
+        ' Признак "активного" состояния — только по давлению
         Dim cycleActive As Boolean
-        cycleActive = (pressLvl >= CYCLE_THRESH And waterLvl >= CYCLE_THRESH)
+        cycleActive = (pressLvl >= CYCLE_THRESH)
 
         If Not inCyc Then
             If cycleActive Then
@@ -1481,7 +1479,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     ws.Cells(1, 1).Font.Color = RGB(0, 80, 160)
 
     ' Та же логика обнаружения циклов что и в DetectCyclesAndCalculateF0
-    ' Цикл активен: давление >= 6.0 И вода >= 6.0
+    ' Цикл активен: давление >= 6.0 (вода не учитывается)
     Const CY_THRESH As Double = 6#
     Const CY_END_CNT As Integer = 5
 
@@ -1497,12 +1495,11 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
         Dim wRv As Variant, prRv As Variant
         wRv  = wsData.Cells(p, 7).Value  ' G — уровень воды
         prRv = wsData.Cells(p, 6).Value  ' F — давление
-        Dim waterLvl As Double, pressLvl As Double
-        waterLvl = IIf(IsNumeric(wRv),  CDbl(wRv),  0)
-        pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
+        Dim pressLvlCy As Double
+        pressLvlCy = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         Dim cycActCy As Boolean
-        cycActCy = (pressLvl >= CY_THRESH And waterLvl >= CY_THRESH)
+        cycActCy = (pressLvlCy >= CY_THRESH)
 
         If Not inCyc Then
             If cycActCy Then
