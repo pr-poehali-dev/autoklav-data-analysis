@@ -56,15 +56,21 @@ Sub Autoclave_ProcessCSV()
     ' (файл начинается с T > 40°C при времени ~00:00)
     ' ----------------------------------------------------------------
     Dim prevFilePath As String
+    Dim suggestPrev As String
+    Dim hintPrev As String
+    Dim msgText As String
+    Dim ans As Integer
+    Dim defPrevPath As String
+    Dim pickAgain As Boolean
+    Dim chosenName As String
+    Dim warnAns As Integer
     prevFilePath = ""
 
     If NeedsPreviousFile(wsData) Then
         Application.ScreenUpdating = True
 
         ' Подсказываем имя предыдущего файла (дата −1 день)
-        Dim suggestPrev As String
         suggestPrev = GetNeighborFileName(csvFileName, -1)
-        Dim hintPrev As String
         If suggestPrev <> "" Then
             hintPrev = Chr(13) & Chr(13) & "РЕКОМЕНДУЕМЫЙ ФАЙЛ:  " & suggestPrev
             If Len(Dir(csvFolder & suggestPrev)) > 0 Then
@@ -74,24 +80,50 @@ Sub Autoclave_ProcessCSV()
             End If
         End If
 
-        Dim ans As Integer
-        ans = MsgBox("Данные начинаются при температуре продукта > 40°C в начале суток." & Chr(13) & _
-                     "Похоже, замес начался в ПРЕДЫДУЩЕМ файле." & hintPrev & Chr(13) & Chr(13) & _
-                     "Загрузить предыдущий CSV-файл для корректного расчёта F0 и времени цикла?", _
-                     vbYesNo + vbQuestion, "Переход суток — нужен ПРЕДЫДУЩИЙ файл")
+        ' Формируем сообщение — имя файла крупным блоком через пустые строки
+        Dim msgText As String
+        msgText = "Данные начинаются при температуре продукта > 40" & Chr(176) & "C в начале суток." & Chr(13) & _
+                  "Похоже, замес начался в ПРЕДЫДУЩЕМ файле." & Chr(13) & Chr(13)
+        If suggestPrev <> "" Then
+            msgText = msgText & "РЕКОМЕНДУЕМЫЙ ФАЙЛ:" & Chr(13) & Chr(13) & _
+                      "  >>> " & suggestPrev & " <<<" & Chr(13) & Chr(13)
+            If Len(Dir(csvFolder & suggestPrev)) > 0 Then
+                msgText = msgText & "(найден в этой папке)" & Chr(13) & Chr(13)
+            Else
+                msgText = msgText & "(в папке не найден — выберите вручную)" & Chr(13) & Chr(13)
+            End If
+        End If
+        msgText = msgText & "Загрузить предыдущий CSV-файл для корректного расчёта F0 и времени цикла?"
+
+        ans = MsgBox(msgText, vbYesNo + vbQuestion, "Переход суток — нужен ПРЕДЫДУЩИЙ файл")
 
         If ans = vbYes Then
-            ' Если рекомендуемый файл найден — предлагаем сразу его
-            Dim defPrevPath As String
             defPrevPath = ""
-            If suggestPrev <> "" And Len(Dir(csvFolder & suggestPrev)) > 0 Then
-                defPrevPath = csvFolder & suggestPrev
-            End If
+            pickAgain = True
 
-            prevFilePath = Application.GetOpenFilename( _
-                FileFilter:="CSV Files (*.csv),*.csv,All Files (*.*),*.*", _
-                Title:="Выберите ПРЕДЫДУЩИЙ файл: " & suggestPrev)
-            If prevFilePath = "False" Then prevFilePath = ""
+            Do While pickAgain
+                pickAgain = False
+                prevFilePath = Application.GetOpenFilename( _
+                    FileFilter:="CSV Files (*.csv),*.csv,All Files (*.*),*.*", _
+                    Title:="Выберите ПРЕДЫДУЩИЙ файл (рекомендуется: " & suggestPrev & ")")
+                If prevFilePath = "False" Then
+                    prevFilePath = ""
+                Else
+                    ' Валидация: проверяем что выбран правильный файл
+                    chosenName = Mid(prevFilePath, InStrRev(prevFilePath, "\\") + 1)
+                    If suggestPrev <> "" And LCase(chosenName) <> LCase(suggestPrev) Then
+                        warnAns = MsgBox("Выбран файл:  " & chosenName & Chr(13) & Chr(13) & _
+                                         "Рекомендуется:  " & suggestPrev & Chr(13) & Chr(13) & _
+                                         "Вы выбрали другой файл — данные могут быть некорректны." & Chr(13) & Chr(13) & _
+                                         "Использовать выбранный файл?", _
+                                         vbYesNo + vbExclamation, "Проверка файла")
+                        If warnAns = vbNo Then
+                            pickAgain = True
+                            prevFilePath = ""
+                        End If
+                    End If
+                End If
+            Loop
         End If
         Application.ScreenUpdating = False
     End If
