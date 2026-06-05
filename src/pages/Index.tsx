@@ -1486,6 +1486,22 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If arrPressure(ri) > pressMaxVal Then pressMaxVal = arrPressure(ri)
     Next ri
 
+    ' Проход 1б: находим последнее ненулевое давление и продлеваем до конца
+    ' Это нужно чтобы коричневая линия не падала вниз в конце графика
+    Dim pressLastRi As Long : pressLastRi = 0
+    For ri = nRows To 1 Step -1
+        If arrPressure(ri) > 0.01 Then
+            pressLastRi = ri
+            Exit For
+        End If
+    Next ri
+    If pressLastRi > 0 And pressLastRi < nRows Then
+        Dim pressLastVal As Double : pressLastVal = arrPressure(pressLastRi)
+        For ri = pressLastRi + 1 To nRows
+            arrPressure(ri) = pressLastVal
+        Next ri
+    End If
+
     ' Проход 2: находим первую точку где F0 реально начал расти (> 0)
     ' Это точнее чем T>=90, т.к. F0 считается с первого момента накопления
     Dim f0StartRi As Long : f0StartRi = 0
