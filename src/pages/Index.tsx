@@ -1680,7 +1680,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .PlotArea.Interior.Color = RGB(255, 255, 255)
         .PlotArea.Border.LineStyle = xlContinuous
         .PlotArea.Border.Color = RGB(180, 200, 220)
-        .PlotArea.Height = 430   ' 510 - 80pt снизу = место для оси X + серая шкала + синяя шкала
         .ChartArea.Interior.Color = RGB(250, 252, 255)
         .ChartArea.Border.Color = RGB(180, 200, 220)
 
