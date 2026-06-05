@@ -2145,18 +2145,18 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         On Error GoTo 0
 
-        ' Текстовый блок с именами файлов — справа от заголовка (вне графика, над ним)
+        ' Имена файлов — строго НАД графиком (co.Top - 22), правый угол — всегда печатается
         Set tbFileNames = ws.Shapes.AddTextbox( _
-            msoTextOrientationHorizontal, co.Left + co.Width - 200, co.Top + 2, 195, 16)
+            msoTextOrientationHorizontal, co.Left + co.Width - 280, co.Top - 22, 278, 18)
         With tbFileNames
             .Line.Visible = msoFalse
             .Fill.Visible = msoFalse
             With .TextFrame2.TextRange
                 .Text = csvFileName
-                .Font.Size = 8
+                .Font.Size = 9
                 .Font.Bold = False
                 .ParagraphFormat.Alignment = msoAlignRight
-                .Font.Fill.ForeColor.RGB = RGB(80, 80, 80)
+                .Font.Fill.ForeColor.RGB = RGB(40, 40, 140)
             End With
             .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 2
             .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
@@ -2271,7 +2271,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim tKmaxCy As Double : tKmaxCy = 0
     Dim tProdMaxCy As Double : tProdMaxCy = 0  ' MAX T продукта за цикл
     Dim cycIdx As Integer : cycIdx = 0
-    Dim topOffset As Long : topOffset = 5  ' отступ сверху первого графика
+    Dim topOffset As Long : topOffset = 30  ' отступ сверху — место для имён файлов над первым графиком
 
     Dim p As Long
     For p = 2 To lastRow
@@ -2327,7 +2327,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 If tProdMaxCy >= T_PEAK_STERIL Then
                     cycIdx = cycIdx + 1
                     Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
-                    topOffset = topOffset + 560  ' CHART_H(510) + 50pt для таблички фаз + отступ
+                    topOffset = topOffset + 650  ' CHART_H(510) + 30pt шкалы + 90pt табличка + 20pt отступ
                 End If
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
@@ -2336,18 +2336,15 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 ChartNext:
     Next p
 
-    ' Настройка печати: A4 портрет, FitToPagesWide=1 — Excel масштабирует ширину автоматически
-    ' При CHART_H=490 и topOffset=510 каждый график занимает ровно одну страницу A4
+    ' Настройка печати: A4 портрет, масштаб 85% — всё влезает включая таблицу фаз под графиком
     With ws.PageSetup
         .Orientation        = xlPortrait
         .PaperSize          = xlPaperA4
-        .Zoom               = False
-        .FitToPagesWide     = 1
-        .FitToPagesTall     = False
-        .LeftMargin         = Application.CentimetersToPoints(1)
-        .RightMargin        = Application.CentimetersToPoints(1)
-        .TopMargin          = Application.CentimetersToPoints(1)
-        .BottomMargin       = Application.CentimetersToPoints(1)
+        .Zoom               = 85
+        .LeftMargin         = Application.CentimetersToPoints(0.8)
+        .RightMargin        = Application.CentimetersToPoints(0.8)
+        .TopMargin          = Application.CentimetersToPoints(0.8)
+        .BottomMargin       = Application.CentimetersToPoints(0.8)
         .CenterHorizontally = True
         .PrintGridlines     = False
         .PrintHeadings      = False
