@@ -1150,6 +1150,9 @@ P2Next:
 
         Dim tMin As Double, tMax As Double
         tMax = tMaxC
+
+        ' Максимальная температура не превысила 50°C — только прогрев, не добавляем в отчёт
+        If tMax <= 50# Then GoTo NextCycle
         tMin = IIf(tMinC < 999, tMinC, 0)
 
         Dim f0Cycle As Double : f0Cycle = f0C
