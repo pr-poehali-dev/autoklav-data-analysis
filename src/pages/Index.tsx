@@ -1735,6 +1735,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim tbValues As Shape
     Dim tbFileNames As Shape
     Dim chartTitleStr As String
+    Dim ctLeft As Double
+    Dim ctTop  As Double
 
     ' Вычисляем дату заранее — нужна для заголовка графика
     cycDateVal = wsData.Cells(rStart, 1).Value
@@ -2145,9 +2147,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         On Error GoTo 0
 
-        ' Имена файлов — строго НАД графиком (co.Top - 22), правый угол — всегда печатается
-        Set tbFileNames = ws.Shapes.AddTextbox( _
-            msoTextOrientationHorizontal, co.Left + co.Width - 280, co.Top - 22, 278, 18)
+        ' ====== ВСЁ ВНУТРИ cht.Shapes — гарантированно печатается ======
+        ' Имена файлов — правый угол заголовка, на одном уровне с "Термограмма цикл N"
+        ' Позиция внутри графика: верх ChartArea, правее центра
+        Set tbFileNames = cht.Shapes.AddTextbox( _
+            msoTextOrientationHorizontal, 395, 2, 380, 18)
         With tbFileNames
             .Line.Visible = msoFalse
             .Fill.Visible = msoFalse
@@ -2158,22 +2162,39 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .ParagraphFormat.Alignment = msoAlignRight
                 .Font.Fill.ForeColor.RGB = RGB(40, 40, 140)
             End With
-            .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 2
+            .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 4
             .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
         End With
-        ' Табличка фаз — под легендой справа, выравнивание через два отдельных TextBox
-        ' (метки слева, значения справа — так числа стоят по одной оси Y)
+
+        ' Табличка фаз — под легендой (легенда справа ~160pt от правого края)
+        ' Координаты внутри ChartArea: X от правого края минус ширина таблички
         If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
             totalCycleSec = phaseHeatSec + phaseHoldSec + phaseCoolSec
             totalStr = FormatMinSec(totalCycleSec)
 
-            ' Позиция: ПОД графиком — там точно печатается и не перекрывается
-            tbLeft = co.Left + co.Width - 160
-            tbTop  = co.Top + co.Height + 5
+            ' Позиция внутри cht: справа (легенда ~155pt шириной), под легендой
+            ctLeft = 635
+            ctTop  = 220
 
-            ' Левый TextBox — метки (жирные)
-            Set tbLabels = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, tbLeft, tbTop, 75, 90)
+            ' Рамка — фон
+            Set tb = cht.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, ctLeft, ctTop, 145, 4)
+            With tb
+                .Line.Visible = msoTrue
+                .Line.ForeColor.RGB = RGB(180, 180, 190)
+                .Fill.ForeColor.RGB = RGB(250, 252, 255)
+                .Fill.Solid
+                .TextFrame2.TextRange.Text = ""
+                If phaseCoolSec > 0 Then
+                    .Height = 96
+                Else
+                    .Height = 82
+                End If
+            End With
+
+            ' Левый блок — метки (жирные)
+            Set tbLabels = cht.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, ctLeft + 4, ctTop + 3, 72, 76)
             With tbLabels
                 .Line.Visible = msoFalse
                 .Fill.Visible = msoFalse
@@ -2188,16 +2209,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         .Text = "Нагрев:" & Chr(10) & "Удержание:" & Chr(10) & Chr(10) & "Общее время:"
                     End If
                 End With
-                .TextFrame.MarginLeft = 4
-                .TextFrame.MarginRight = 0
-                .TextFrame.MarginTop = 3
-                .TextFrame.MarginBottom = 3
-                .TextFrame.AutoSize = True
+                .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
             End With
 
-            ' Правый TextBox — значения (обычный шрифт)
-            Set tbValues = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, tbLeft + 72, tbTop, 60, 90)
+            ' Правый блок — значения
+            Set tbValues = cht.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, ctLeft + 76, ctTop + 3, 65, 76)
             With tbValues
                 .Line.Visible = msoFalse
                 .Fill.Visible = msoFalse
@@ -2212,29 +2230,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         .Text = heatStr & Chr(10) & holdStr & Chr(10) & Chr(10) & totalStr
                     End If
                 End With
-                .TextFrame.MarginLeft = 2
-                .TextFrame.MarginRight = 4
-                .TextFrame.MarginTop = 3
-                .TextFrame.MarginBottom = 3
-                .TextFrame.AutoSize = True
+                .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
             End With
-
-            ' Рамка вокруг таблички
-            Set tb = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, tbLeft - 2, tbTop - 2, 162, 4)
-            With tb
-                .Line.Visible = msoTrue
-                .Line.ForeColor.RGB = RGB(180, 180, 190)
-                .Fill.ForeColor.RGB = RGB(250, 252, 255)
-                .Fill.Solid
-                .TextFrame2.TextRange.Text = ""
-                If phaseCoolSec > 0 Then
-                    .Height = 96
-                Else
-                    .Height = 82
-                End If
-            End With
-            tb.ZOrder msoSendToBack
         End If
 
     End With
@@ -2327,7 +2325,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 If tProdMaxCy >= T_PEAK_STERIL Then
                     cycIdx = cycIdx + 1
                     Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
-                    topOffset = topOffset + 650  ' CHART_H(510) + 30pt шкалы + 90pt табличка + 20pt отступ
+                    topOffset = topOffset + 530  ' CHART_H(510) + 20pt отступ между графиками
                 End If
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
