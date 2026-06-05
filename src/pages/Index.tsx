@@ -1369,8 +1369,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
-    Const CHART_W As Long = 820   ' ширина — до колонки N
-    Const CHART_H As Long = 515   ' высота: +15pt для двух строк меток оси X
+    ' A4 portrait: 841pt высота, поля 0.5cm (14pt) × 2 = 813pt рабочих
+    ' Один график занимает ровно одну страницу A4
+    ' Ширина: A4=595pt, поля 0.5cm×2=567pt → масштаб 567/760=74.6% → берём 760pt чтобы при 75% влезло
+    Const CHART_W As Long = 760   ' ширина графика
+    Const CHART_H As Long = 780   ' высота = одна страница A4 при масштабе 100%
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1955,7 +1958,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim tKmaxCy As Double : tKmaxCy = 0
     Dim tProdMaxCy As Double : tProdMaxCy = 0  ' MAX T продукта за цикл
     Dim cycIdx As Integer : cycIdx = 0
-    Dim topOffset As Long : topOffset = 30
+    Dim topOffset As Long : topOffset = 20  ' отступ сверху первого графика
 
     Dim p As Long
     For p = 2 To lastRow
@@ -2011,7 +2014,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 If tProdMaxCy >= T_PEAK_STERIL Then
                     cycIdx = cycIdx + 1
                     Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                    topOffset = topOffset + 510  ' 490 (высота) + 20 (отступ между графиками)
+                    topOffset = topOffset + 813  ' CHART_H(780) + 33pt отступ = ровно одна страница A4
                 End If
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
@@ -2020,18 +2023,19 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 ChartNext:
     Next p
 
-    ' Настройка печати: A4 портрет, вписать по ширине в 1 страницу,
-    ' каждый график (700px) попадает на отдельный лист
+    ' Настройка печати: A4 портрет, масштаб 75% — график 760pt × 75% = 570pt (влезает в 567pt рабочих)
+    ' topOffset между графиками = 813pt = ровно одна страница A4 → каждый цикл на своём листе
     With ws.PageSetup
         .Orientation = xlPortrait
         .PaperSize = xlPaperA4
-        .Zoom = False
-        .FitToPagesWide = 1
-        .FitToPagesTall = False  ' высота не ограничена — много страниц
-        .LeftMargin = Application.InchesToPoints(0.3)
-        .RightMargin = Application.InchesToPoints(0.3)
-        .TopMargin = Application.InchesToPoints(0.3)
-        .BottomMargin = Application.InchesToPoints(0.3)
+        .Zoom = 75
+        .LeftMargin   = Application.CentimetersToPoints(0.5)
+        .RightMargin  = Application.CentimetersToPoints(0.5)
+        .TopMargin    = Application.CentimetersToPoints(0.5)
+        .BottomMargin = Application.CentimetersToPoints(0.5)
+        .CenterHorizontally = True
+        .PrintGridlines = False
+        .PrintHeadings  = False
     End With
 End Sub
 
