@@ -1077,14 +1077,8 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                     cycleCount = cycleCount + 1
                     cycleStarts(cycleCount) = cyStart
                     cycleEnds_(cycleCount) = realEnd
-                    ' Tref из MAX столбца K: 115°C или 120°C
-                    If tKmaxP1 >= 118# Then
-                        cycleTref(cycleCount) = 120#
-                    ElseIf tKmaxP1 >= 100# Then
-                        cycleTref(cycleCount) = 115#
-                    Else
-                        cycleTref(cycleCount) = T_REF
-                    End If
+                    ' Tref всегда 121.1°C по ГОСТ (Clostridium botulinum)
+                    cycleTref(cycleCount) = T_REF
                 End If
                 inCyc = False : endCount = 0 : tKmaxP1 = 0
             End If
