@@ -1008,21 +1008,25 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
     Dim inCyc As Boolean
     Dim cyStart As Long
-    Dim endCount As Integer     ' счётчик строк где оба параметра ниже порога
-    Dim tKmaxP1 As Double       ' MAX заданной температуры за цикл (столбец K)
+    Dim endCount As Integer
+    Dim tKmaxP1 As Double
+    Dim p As Long
+    Dim wRv As Variant, prRv As Variant
+    Dim pressLvl As Double
+    Dim cycleActive As Boolean
+    Dim cycEnd1 As Boolean
+    Dim realEnd As Long
+    Dim tkRvP1 As Variant
+    Dim tkVP1 As Double
     inCyc = False : endCount = 0 : tKmaxP1 = 0
 
-    Dim p As Long
     For p = 2 To lastRow
-        Dim wRv As Variant, prRv As Variant
         wRv  = wsData.Cells(p, COL_WATER).Value
         prRv = wsData.Cells(p, COL_PRESSURE).Value
 
-        Dim pressLvl As Double
         pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         ' Признак "активного" состояния — только по давлению
-        Dim cycleActive As Boolean
         cycleActive = (pressLvl >= CYCLE_THRESH)
 
         If Not inCyc Then
@@ -1034,10 +1038,9 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
             End If
         Else
             ' Накапливаем MAX заданной температуры из столбца K
-            Dim tkRvP1 As Variant
             tkRvP1 = wsData.Cells(p, COL_TREF).Value
             If IsNumeric(tkRvP1) Then
-                Dim tkVP1 As Double : tkVP1 = CDbl(tkRvP1)
+                tkVP1 = CDbl(tkRvP1)
                 If tkVP1 >= 100# And tkVP1 <= 130# And tkVP1 > tKmaxP1 Then
                     tKmaxP1 = tkVP1
                 End If
@@ -1050,11 +1053,9 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
                 endCount = 0
             End If
 
-            Dim cycEnd1 As Boolean
             cycEnd1 = (endCount >= END_COUNT) Or (p = lastRow)
 
             If cycEnd1 Then
-                Dim realEnd As Long
                 If endCount >= END_COUNT Then
                     realEnd = p - endCount + 1  ' первая строка падения
                 Else
