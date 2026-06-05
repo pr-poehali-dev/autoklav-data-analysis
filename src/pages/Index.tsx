@@ -1675,6 +1675,31 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim xPt          As Double
     Dim xPtLast      As Double
     Dim grayLabel    As String
+    Dim pressAxisMax As Double
+    Dim heatMidRi    As Long
+    Dim sr1 As Series, sr2 As Series, sr4 As Series, sr5 As Series
+    Dim ptCount1 As Long, ptCount2 As Long, ptCount4 As Long, ptCount5 As Long
+    Dim lbl1Pt As Long, lbl2Pt As Long, lbl5Pt As Long
+    Dim pt1 As Point, pt2 As Point, pt4start As Point, pt5 As Point
+    Dim f0MidPt As Long
+    Dim platoPoint As Point
+    Dim coolMidRi  As Long
+    Dim sr1r As Series, sr2r As Series, sr5r As Series
+    Dim ptCnt1r As Long, ptCnt2r As Long, ptCnt5r As Long
+    Dim lbl1r As Long, lbl2r As Long, lbl5r As Long
+    Dim pt1r As Point, pt2r As Point, pt5r As Point
+    Dim cycDateVal As Variant
+    Dim cycDateStr As String
+    Dim tbDate As Shape
+    Dim totalCycleSec As Double
+    Dim totalStr As String
+    Dim phaseText As String
+    Dim tbLeft As Double
+    Dim tbTop  As Double
+    Dim tb As Shape
+    Dim holdStart2 As Integer
+    Dim coolStart2 As Integer
+    Dim totalStart As Integer
 
     With cht
         .HasTitle = True
@@ -1720,7 +1745,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .AxisTitle.Text = "Давление (бар)"
             .AxisTitle.Font.Size = 8
             .AxisTitle.Font.Color = RGB(130, 70, 20)
-            Dim pressAxisMax As Double
             If pressMaxVal > 0 Then
                 pressAxisMax = Application.WorksheetFunction.RoundUp(pressMaxVal * 1.15, 0)
                 If pressAxisMax < 4 Then pressAxisMax = 4
@@ -1838,7 +1862,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' Последняя точка — если не попала в Step
         If ckLastAdded < nRows Then
-            Dim xPtLast As Double
             xPtLast = paILeft + paIWidth - ckW / 2
             ' Серая последняя
             Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, grayYpos, ckW, 12)
@@ -1893,7 +1916,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ' Серия 3 — пунктир, метка не нужна (видно по цвету)
 
         ' Середина нагрева (индекс точки) — rHoldStart относительно rStart
-        Dim heatMidRi As Long
         If rHoldStart > rStart Then
             heatMidRi = CLng((rHoldStart - rStart) / 2)
         Else
@@ -1903,13 +1925,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' --- Серия 1 (T среды, синяя): цифра "1" в середине нагрева, выше линии ---
         On Error Resume Next
-        Dim sr1 As Series : Set sr1 = .SeriesCollection(1)
-        Dim ptCount1 As Long : ptCount1 = sr1.Points.Count
+        Set sr1 = .SeriesCollection(1)
+        ptCount1 = sr1.Points.Count
         If ptCount1 > 0 Then
-            Dim lbl1Pt As Long : lbl1Pt = heatMidRi
+            lbl1Pt = heatMidRi
             If lbl1Pt > ptCount1 Then lbl1Pt = ptCount1
             sr1.HasDataLabels = False
-            Dim pt1 As Point : Set pt1 = sr1.Points(lbl1Pt)
+            Set pt1 = sr1.Points(lbl1Pt)
             pt1.HasDataLabel = True
             With pt1.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -1923,14 +1945,14 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' --- Серия 2 (T продукта, красная): цифра "2" чуть правее середины нагрева, ниже линии ---
         On Error Resume Next
-        Dim sr2 As Series : Set sr2 = .SeriesCollection(2)
-        Dim ptCount2 As Long : ptCount2 = sr2.Points.Count
+        Set sr2 = .SeriesCollection(2)
+        ptCount2 = sr2.Points.Count
         If ptCount2 > 0 Then
-            Dim lbl2Pt As Long : lbl2Pt = CLng(heatMidRi * 1.3)  ' чуть правее серии 1
+            lbl2Pt = CLng(heatMidRi * 1.3)
             If lbl2Pt < 1 Then lbl2Pt = 1
             If lbl2Pt > ptCount2 Then lbl2Pt = ptCount2
             sr2.HasDataLabels = False
-            Dim pt2 As Point : Set pt2 = sr2.Points(lbl2Pt)
+            Set pt2 = sr2.Points(lbl2Pt)
             pt2.HasDataLabel = True
             With pt2.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -1944,13 +1966,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' --- Серия 4 (F0, зелёная): цифра "4" у первой точки F0 + "F0=X.X мин" на плато ---
         On Error Resume Next
-        Dim sr4 As Series : Set sr4 = .SeriesCollection(4)
-        Dim ptCount4 As Long : ptCount4 = sr4.Points.Count
+        Set sr4 = .SeriesCollection(4)
+        ptCount4 = sr4.Points.Count
         If ptCount4 > 0 Then
             sr4.HasDataLabels = False
             ' Цифра "4" — у первой ненулевой точки F0
             If f0StartRi >= 1 And f0StartRi <= ptCount4 Then
-                Dim pt4start As Point : Set pt4start = sr4.Points(f0StartRi)
+                Set pt4start = sr4.Points(f0StartRi)
                 pt4start.HasDataLabel = True
                 With pt4start.DataLabel
                     .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -1961,10 +1983,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 End With
             End If
             ' "F0=X.X мин" — на середине плато
-            Dim f0MidPt As Long : f0MidPt = CLng((f0PlatoRi + f0LastRi) / 2)
+            f0MidPt = CLng((f0PlatoRi + f0LastRi) / 2)
             If f0MidPt < 1 Then f0MidPt = 1
             If f0MidPt > ptCount4 Then f0MidPt = ptCount4
-            Dim platoPoint As Point : Set platoPoint = sr4.Points(f0MidPt)
+            Set platoPoint = sr4.Points(f0MidPt)
             platoPoint.HasDataLabel = True
             With platoPoint.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -1980,14 +2002,14 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ' --- Серия 5 (Давление, коричневая): цифра "5" в начале нагрева, ещё правее, выше ---
         On Error Resume Next
         If .SeriesCollection.Count >= 5 Then
-            Dim sr5 As Series : Set sr5 = .SeriesCollection(5)
-            Dim ptCount5 As Long : ptCount5 = sr5.Points.Count
+            Set sr5 = .SeriesCollection(5)
+            ptCount5 = sr5.Points.Count
             If ptCount5 > 0 Then
-                Dim lbl5Pt As Long : lbl5Pt = CLng(heatMidRi * 0.6)  ' левее серии 1
+                lbl5Pt = CLng(heatMidRi * 0.6)
                 If lbl5Pt < 1 Then lbl5Pt = 1
                 If lbl5Pt > ptCount5 Then lbl5Pt = ptCount5
                 sr5.HasDataLabels = False
-                Dim pt5 As Point : Set pt5 = sr5.Points(lbl5Pt)
+                Set pt5 = sr5.Points(lbl5Pt)
                 pt5.HasDataLabel = True
                 With pt5.DataLabel
                     .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -2002,7 +2024,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' === Дублирующие цифры серий справа — в зоне охлаждения ===
         ' Позиция: 80% от rHoldEnd до rEnd (середина зоны охлаждения)
-        Dim coolMidRi As Long
         If rHoldEnd > 0 And rEnd > rHoldEnd Then
             coolMidRi = (rHoldEnd - rStart) + CLng((rEnd - rHoldEnd) * 0.5)
         Else
@@ -2013,12 +2034,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         On Error Resume Next
         ' --- Цифра "1" справа — слева от точки, выше линии ---
-        Dim sr1r As Series : Set sr1r = .SeriesCollection(1)
-        Dim ptCnt1r As Long : ptCnt1r = sr1r.Points.Count
+        Set sr1r = .SeriesCollection(1)
+        ptCnt1r = sr1r.Points.Count
         If ptCnt1r > 0 Then
-            Dim lbl1r As Long : lbl1r = coolMidRi
+            lbl1r = coolMidRi
             If lbl1r > ptCnt1r Then lbl1r = ptCnt1r
-            Dim pt1r As Point : Set pt1r = sr1r.Points(lbl1r)
+            Set pt1r = sr1r.Points(lbl1r)
             pt1r.HasDataLabel = True
             With pt1r.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -2029,12 +2050,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             End With
         End If
         ' --- Цифра "2" справа ---
-        Dim sr2r As Series : Set sr2r = .SeriesCollection(2)
-        Dim ptCnt2r As Long : ptCnt2r = sr2r.Points.Count
+        Set sr2r = .SeriesCollection(2)
+        ptCnt2r = sr2r.Points.Count
         If ptCnt2r > 0 Then
-            Dim lbl2r As Long : lbl2r = CLng(coolMidRi * 1.05)
+            lbl2r = CLng(coolMidRi * 1.05)
             If lbl2r > ptCnt2r Then lbl2r = ptCnt2r
-            Dim pt2r As Point : Set pt2r = sr2r.Points(lbl2r)
+            Set pt2r = sr2r.Points(lbl2r)
             pt2r.HasDataLabel = True
             With pt2r.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -2046,12 +2067,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         ' --- Цифра "5" (давление) справа — только если серия есть ---
         If .SeriesCollection.Count >= 5 Then
-            Dim sr5r As Series : Set sr5r = .SeriesCollection(5)
-            Dim ptCnt5r As Long : ptCnt5r = sr5r.Points.Count
+            Set sr5r = .SeriesCollection(5)
+            ptCnt5r = sr5r.Points.Count
             If ptCnt5r > 0 Then
-                Dim lbl5r As Long : lbl5r = coolMidRi
+                lbl5r = coolMidRi
                 If lbl5r > ptCnt5r Then lbl5r = ptCnt5r
-                Dim pt5r As Point : Set pt5r = sr5r.Points(lbl5r)
+                Set pt5r = sr5r.Points(lbl5r)
                 pt5r.HasDataLabel = True
                 With pt5r.DataLabel
                     .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
@@ -2065,8 +2086,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         On Error GoTo 0
 
         ' Текстовый блок с датой — левый верхний угол графика
-        Dim cycDateVal As Variant : cycDateVal = wsData.Cells(rStart, 1).Value
-        Dim cycDateStr As String
+        cycDateVal = wsData.Cells(rStart, 1).Value
         If IsDate(cycDateVal) Then
             cycDateStr = Format(CDate(cycDateVal), "DD.MM.YYYY")
         ElseIf IsNumeric(cycDateVal) And CLng(CDbl(cycDateVal)) > 1000 Then
@@ -2074,7 +2094,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         Else
             cycDateStr = CStr(cycDateVal)
         End If
-        Dim tbDate As Shape
         Set tbDate = ws.Shapes.AddTextbox( _
             msoTextOrientationHorizontal, co.Left + 8, co.Top + 8, 90, 18)
         With tbDate
@@ -2092,12 +2111,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ' Показывает: Нагрев / Удержание / Охлаждение по T среды
         If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
             ' Общее время цикла
-            Dim totalCycleSec As Double
             totalCycleSec = phaseHeatSec + phaseHoldSec + phaseCoolSec
-            Dim totalStr As String : totalStr = FormatMinSec(totalCycleSec)
+            totalStr = FormatMinSec(totalCycleSec)
 
             ' Строим текст — Остывание только если > 0
-            Dim phaseText As String
             phaseText = "Нагрев:         " & heatStr & Chr(10) & _
                         "Удержание:   " & holdStr & Chr(10)
             If phaseCoolSec > 0 Then
@@ -2107,9 +2124,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         "Общее время: " & totalStr
 
             ' Размещаем TextBox правее области построения (рядом с легендой)
-            Dim tbLeft As Double : tbLeft = co.Left + co.Width - 155
-            Dim tbTop  As Double : tbTop  = co.Top + co.Height - 90
-            Dim tb As Shape
+            tbLeft = co.Left + co.Width - 155
+            tbTop  = co.Top + co.Height - 90
             Set tb = ws.Shapes.AddTextbox( _
                 msoTextOrientationHorizontal, tbLeft, tbTop, 150, 80)
             With tb
@@ -2126,18 +2142,16 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .Characters(1, 6).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                     .Characters(1, 6).Font.Bold = True
                     ' Удержание — чёрный жирный
-                    Dim holdStart2 As Integer : holdStart2 = Len("Нагрев:         " & heatStr & Chr(10)) + 1
+                    holdStart2 = Len("Нагрев:         " & heatStr & Chr(10)) + 1
                     .Characters(holdStart2, 9).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                     .Characters(holdStart2, 9).Font.Bold = True
                     ' Остывание — чёрный жирный (если есть)
                     If phaseCoolSec > 0 Then
-                        Dim coolStart2 As Integer
                         coolStart2 = holdStart2 + Len("Удержание:   " & holdStr & Chr(10))
                         .Characters(coolStart2, 9).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                         .Characters(coolStart2, 9).Font.Bold = True
                     End If
                     ' Общее время — жирный тёмный
-                    Dim totalStart As Integer
                     If phaseCoolSec > 0 Then
                         totalStart = holdStart2 + Len("Удержание:   " & holdStr & Chr(10)) + Len("Остывание:   " & coolStr & Chr(10)) + 2
                     Else
