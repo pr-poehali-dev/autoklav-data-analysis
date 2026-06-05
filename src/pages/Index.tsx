@@ -267,8 +267,9 @@ Function NeedsPreviousFile(wsData As Worksheet) As Boolean
             On Error GoTo 0
         End If
 
-        ' Время до 5 минут от полуночи (< 0.0035 в дробях Excel = ~5 мин)
-        If tempCheck > 40 And timeDbl < 0.0035 Then
+        ' Время до 1 минуты от полуночи (< 0.0007 в дробях Excel = ~1 мин)
+        ' Узкий порог чтобы не путать старт логгера в 00:00:07 с переходом суток
+        If tempCheck > 40 And timeDbl > 0 And timeDbl < 0.0007 Then
             NeedsPreviousFile = True
             Exit Function
         End If
@@ -313,7 +314,8 @@ Function NeedsNextFile(wsData As Worksheet) As Boolean
         End If
 
         ' Время после 23:55 (> 0.9965 в дробях Excel) и температура горячая
-        If tempCheck > 40 And timeDbl > 0.9965 Then
+        ' timeDbl > 0 исключает случай когда время не распозналось (осталось 0)
+        If tempCheck > 40 And timeDbl > 0 And timeDbl > 0.9965 Then
             NeedsNextFile = True
             Exit Function
         End If
