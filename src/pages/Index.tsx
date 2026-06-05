@@ -1215,13 +1215,13 @@ P2Next:
             Else
                 .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Interior.Color = RGB(255, 255, 255)
             End If
-            .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Font.Color = RGB(30, 30, 30)
-        End With
+            .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Font.Color = RGB(30, 30, 30)
 
-        ' Ячейка результата — цветной фон + контрастный шрифт (вне With чтобы не перекрывалось)
-        wsReport.Cells(reportRow, 8).Interior.Color = resultBgColor
-        wsReport.Cells(reportRow, 8).Font.Color = resultFontColor
-        wsReport.Cells(reportRow, 8).Font.Bold = True
+            ' Ячейка результата — цветной фон + контрастный шрифт
+            .Cells(reportRow, 8).Interior.Color = resultBgColor
+            .Cells(reportRow, 8).Font.Color = resultFontColor
+            .Cells(reportRow, 8).Font.Bold = True
+        End With
 
         ' Сохраняем для таблицы 2 (только циклы прошедшие фильтр 60 мин)
         validCycleCount = validCycleCount + 1
