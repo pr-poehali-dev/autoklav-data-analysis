@@ -167,8 +167,8 @@ Sub Autoclave_ProcessCSV()
         End If
     Next trefScan
     Dim trefNorm As Double
-    trefNorm = 5.5
-    trefInfoStr = "Стерилизация: Tref = 121.1C (ГОСТ)  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
+    trefNorm = 8#
+    trefInfoStr = "Стерилизация: Tref = 121.1C (ГОСТ)  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 8"
 
     Call PrepareReportSheet(wb, wsReport, csvFileName, trefInfoStr)
     Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow)
@@ -1158,7 +1158,7 @@ P2Next:
         Dim result As String, resultColor As Long, noteText As String
 
         ' Норма F0 по ГОСТ — единая для всех программ
-        Dim f0Norm As Double : f0Norm = 5.5
+        Dim f0Norm As Double : f0Norm = 8#
         Dim trefStr As String : trefStr = "Tref=121.1C (ГОСТ), z=10"
 
         If Not peakC Then
