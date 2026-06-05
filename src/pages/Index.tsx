@@ -1370,7 +1370,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
     Const CHART_W As Long = 820   ' ширина — до колонки N
-    Const CHART_H As Long = 500   ' высота ~17.5 см
+    Const CHART_H As Long = 515   ' высота: +15pt для двух строк меток оси X
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1709,7 +1709,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ckW    = ckStepPt - 1
         If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
-        ckYpos = paITop + paIHeight + 22  ' ниже оси X — под серыми метками (22pt отступ)
+        ckYpos = paITop + paIHeight + 28  ' ниже оси X — под серыми метками (28pt отступ)
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
