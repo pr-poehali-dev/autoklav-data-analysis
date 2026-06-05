@@ -1605,6 +1605,25 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s4.Smooth = True
     s4.AxisGroup = xlPrimary
 
+    ' --- Переменные для шкалы реального времени и оси X (объявляем ДО With cht) ---
+    Dim tickStep As Long
+    Dim pa      As PlotArea
+    Dim paLeft  As Double
+    Dim paW     As Double
+    Dim paBot   As Double
+    Dim stepPt  As Double
+    Dim rtTop   As Double
+    Dim rtBoxH  As Double
+    Dim rtBoxW  As Double
+    Dim tki     As Long
+    Dim rtSec2  As Double
+    Dim rtTotalMin2 As Long
+    Dim rtHour  As Long
+    Dim rtMin   As Long
+    Dim rtLabel As String
+    Dim xPos    As Double
+    Dim tbRt    As Shape
+
     With cht
         .HasTitle = True
         .ChartTitle.Text = "Цикл " & cycleIdx
@@ -1646,7 +1665,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         On Error GoTo 0
 
         ' Ось X — время HH:MM + вертикальная сетка
-        Dim tickStep As Long
         If nRows > 3000 Then
             tickStep = CLng(nRows / 25)
         ElseIf nRows > 600 Then
@@ -1674,50 +1692,35 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .MajorTickMark = xlTickMarkCross
         End With
 
-        ' === Шкала реального времени суток — TextBox'ы над осью X ===
-        ' Располагаем между нижним краем PlotArea и нижним краем ChartArea
-        ' Каждый TextBox выровнен точно по позиции вертикальной линии сетки
-        Dim pa As PlotArea
+        ' === Шкала реального времени суток — TextBox под осью X ===
         Set pa = .PlotArea
-        ' Координаты PlotArea в точках относительно листа
-        Dim paLeft  As Double : paLeft  = co.Left + pa.InsideLeft
-        Dim paTop   As Double : paTop   = co.Top  + pa.InsideTop
-        Dim paW     As Double : paW     = pa.InsideWidth
-        Dim paBot   As Double : paBot   = co.Top  + pa.InsideTop + pa.InsideHeight
+        paLeft = co.Left + pa.InsideLeft
+        paW    = pa.InsideWidth
+        paBot  = co.Top + pa.InsideTop + pa.InsideHeight
 
-        ' Ширина одного шага сетки в точках
-        Dim stepPt As Double
         If nRows > 1 Then
             stepPt = paW / (nRows - 1) * tickStep
         Else
             stepPt = paW
         End If
 
-        ' Высота строки реального времени — НИЖЕ стандартных меток оси X (длительность)
-        ' Стандартные метки оси занимают ~14pt ниже paBot → опускаемся на 16pt
-        Dim rtTop As Double  : rtTop  = paBot + 16
-        Dim rtH   As Double  : rtH    = 11
-        Dim rtW   As Double  : rtW    = stepPt * 0.9
-        If rtW < 22 Then rtW = 22
-        If rtW > 60 Then rtW = 60
+        rtTop  = paBot + 16
+        rtBoxH = 11
+        rtBoxW = stepPt * 0.9
+        If rtBoxW < 22 Then rtBoxW = 22
+        If rtBoxW > 60 Then rtBoxW = 60
 
-        ' Рисуем метки реального времени по каждому tickStep-му индексу
-        Dim tki As Long
         For tki = 1 To nRows Step tickStep
-            ' Реальное время этой строки данных
-            Dim rtSec As Double : rtSec = RowAbsSeconds(wsData, rStart + tki - 1)
-            Dim rtTotalMin As Long : rtTotalMin = CLng(Int(rtSec / 60))
-            Dim rtH2 As Long : rtH2 = CLng(Int(rtTotalMin / 60)) Mod 24
-            Dim rtM2 As Long : rtM2 = rtTotalMin Mod 60
-            Dim rtLabel As String : rtLabel = Format(rtH2, "00") & ":" & Format(rtM2, "00")
+            rtSec2      = RowAbsSeconds(wsData, rStart + tki - 1)
+            rtTotalMin2 = CLng(Int(rtSec2 / 60))
+            rtHour      = CLng(Int(rtTotalMin2 / 60)) Mod 24
+            rtMin       = rtTotalMin2 Mod 60
+            rtLabel     = Format(rtHour, "00") & ":" & Format(rtMin, "00")
 
-            ' X-позиция метки (центрируем по точке)
-            Dim xPos As Double
-            xPos = paLeft + (tki - 1) * (paW / (nRows - 1)) - rtW / 2
+            xPos = paLeft + (tki - 1) * (paW / (nRows - 1)) - rtBoxW / 2
 
-            Dim tbRt As Shape
             Set tbRt = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, xPos, rtTop, rtW, rtH)
+                msoTextOrientationHorizontal, xPos, rtTop, rtBoxW, rtBoxH)
             With tbRt
                 .Line.Visible = msoFalse
                 .Fill.Visible = msoFalse
