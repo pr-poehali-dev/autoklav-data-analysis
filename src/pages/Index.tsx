@@ -1437,35 +1437,20 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     holdStr = FormatMinSec(phaseHoldSec)
     coolStr = FormatMinSec(phaseCoolSec)
 
-    ' --- Метки времени на оси X: строка 1 — длительность цикла, строка 2 — реальное время ---
+    ' --- Метки времени на оси X — только длительность цикла (серые) ---
+    ' Реальное время рисуется отдельно синими TextBox внутри Chart.Shapes
     Dim timeLabels() As String
     ReDim timeLabels(1 To nRows)
     Dim ri As Long
     Dim secBase As Double : secBase = RowAbsSeconds(wsData, rStart)
     For ri = 1 To nRows
-        Dim secCur As Double : secCur = RowAbsSeconds(wsData, rStart + ri - 1)
+        Dim secCur   As Double : secCur   = RowAbsSeconds(wsData, rStart + ri - 1)
         Dim secElapsed As Double : secElapsed = secCur - secBase
         If secElapsed < 0 Then secElapsed = 0
         Dim elMin As Long : elMin = CLng(Int(secElapsed / 60))
-        Dim elHr As Long  : elHr  = CLng(Int(elMin / 60))
-        Dim elMn As Long  : elMn  = elMin Mod 60
-        Dim elStr As String : elStr = Format(elHr, "00") & ":" & Format(elMn, "00")
-        ' Реальное время из столбца B (Excel-дробь * 1440 минут)
-        Dim tvB As Variant : tvB = wsData.Cells(rStart + ri - 1, 2).Value
-        Dim rtStr As String
-        If IsNumeric(tvB) Then
-            Dim rtAllMin As Long : rtAllMin = CLng(Int(CDbl(tvB) * 1440))
-            Dim rtHH As Long : rtHH = CLng(Int(rtAllMin / 60)) Mod 24
-            Dim rtMM As Long : rtMM = rtAllMin Mod 60
-            rtStr = Format(rtHH, "00") & ":" & Format(rtMM, "00")
-        Else
-            rtStr = ""
-        End If
-        If rtStr <> "" Then
-            timeLabels(ri) = elStr & Chr(10) & rtStr
-        Else
-            timeLabels(ri) = elStr
-        End If
+        Dim elHr  As Long : elHr  = CLng(Int(elMin / 60))
+        Dim elMn  As Long : elMn  = elMin Mod 60
+        timeLabels(ri) = Format(elHr, "00") & ":" & Format(elMn, "00")
     Next ri
 
     ' --- Данные серий ---
@@ -1620,7 +1605,23 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s4.Smooth = True
     s4.AxisGroup = xlPrimary
 
-    Dim tickStep As Long
+    Dim tickStep  As Long
+    Dim pa        As PlotArea
+    Dim paILeft   As Double
+    Dim paIWidth  As Double
+    Dim paITop    As Double
+    Dim paIHeight As Double
+    Dim ckStepPt  As Double
+    Dim ckTki     As Long
+    Dim ckTvB     As Variant
+    Dim ckAllMin  As Long
+    Dim ckHH      As Long
+    Dim ckMM      As Long
+    Dim ckLabel   As String
+    Dim ckXpos    As Double
+    Dim ckYpos    As Double
+    Dim ckW       As Double
+    Dim ckTb      As Shape
 
     With cht
         .HasTitle = True
@@ -1690,6 +1691,47 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .MajorGridlines.Format.Line.Weight = 0.5
             .MajorTickMark = xlTickMarkCross
         End With
+
+        ' === Реальное время суток — синие TextBox внутри графика (Chart.Shapes) ===
+        Set pa     = .PlotArea
+        paILeft    = pa.InsideLeft
+        paIWidth   = pa.InsideWidth
+        paITop     = pa.InsideTop
+        paIHeight  = pa.InsideHeight
+
+        If nRows > 1 Then
+            ckStepPt = paIWidth / (nRows - 1) * tickStep
+        Else
+            ckStepPt = paIWidth
+        End If
+        ckW    = ckStepPt - 1
+        If ckW < 26 Then ckW = 26
+        If ckW > 52 Then ckW = 52
+        ckYpos = paITop + paIHeight + 14  ' ниже оси X — под серыми метками длительности
+
+        For ckTki = 1 To nRows Step tickStep
+            ckTvB = wsData.Cells(rStart + ckTki - 1, 2).Value
+            If IsNumeric(ckTvB) Then
+                ckAllMin = CLng(Int(CDbl(ckTvB) * 1440))
+                ckHH     = CLng(Int(ckAllMin / 60)) Mod 24
+                ckMM     = ckAllMin Mod 60
+                ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
+                ckXpos   = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
+                Set ckTb = .Shapes.AddTextbox( _
+                    msoTextOrientationHorizontal, ckXpos, ckYpos, ckW, 11)
+                With ckTb
+                    .Line.Visible  = msoFalse
+                    .Fill.Visible  = msoFalse
+                    With .TextFrame2.TextRange
+                        .Text = ckLabel
+                        .Font.Size = 7
+                        .ParagraphFormat.Alignment = msoAlignCenter
+                        .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
+                        .Font.Bold = False
+                    End With
+                End With
+            End If
+        Next ckTki
 
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
