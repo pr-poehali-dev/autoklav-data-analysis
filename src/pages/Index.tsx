@@ -1670,6 +1670,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim ckTb      As Shape
     Dim ckTV2        As Date
     Dim ckLastAdded  As Long
+    Dim grayYpos     As Double
+    Dim blueYpos     As Double
+    Dim xPt          As Double
+    Dim xPtLast      As Double
+    Dim grayLabel    As String
 
     With cht
         .HasTitle = True
@@ -1730,7 +1735,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .TickLabels.Font.Size = 9
         End With
 
-        ' Ось X — время HH:MM + вертикальная сетка
+        ' === Ось X: скрываем встроенные метки, рисуем ОБЕ шкалы вручную через TextBox ===
+        ' Так обе строки всегда точно под линиями сетки и не наезжают друг на друга
         If nRows > 3000 Then
             tickStep = CLng(nRows / 25)
         ElseIf nRows > 600 Then
@@ -1746,12 +1752,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         With .Axes(xlCategory)
             .HasTitle = False
-            .TickLabels.Font.Size = 7
-            .TickLabels.Font.Color = RGB(50, 50, 50)
-            .TickLabels.Orientation = xlHorizontal
+            ' Скрываем встроенные метки оси X — рисуем их вручную ниже
+            .TickLabels.Font.Color = RGB(255, 255, 255)  ' белый = невидимый
+            .TickLabels.Font.Size = 1
             .TickLabelSpacing = tickStep
             .TickMarkSpacing = tickStep
-            ' Вертикальная сетка по времени — мелкий пунктир снизу вверх
             .HasMajorGridlines = True
             .MajorGridlines.Format.Line.ForeColor.RGB = RGB(200, 210, 225)
             .MajorGridlines.Format.Line.DashStyle = msoLineSysDash
@@ -1759,54 +1764,66 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .MajorTickMark = xlTickMarkCross
         End With
 
-        ' === Реальное время суток — синие TextBox внутри графика (Chart.Shapes) ===
-        ' pa.Top + pa.Height = нижний край ВНЕШНЕЙ рамки PlotArea (включает метки оси X)
-        ' InsideTop + InsideHeight = нижний край только области линий (без меток)
-        ' Используем внешний край + 3pt — синяя шкала всегда ниже серых меток
-        Set pa     = .PlotArea
-        paILeft    = pa.InsideLeft
-        paIWidth   = pa.InsideWidth
-        paITop     = pa.InsideTop
-        paIHeight  = pa.InsideHeight
+        Set pa   = .PlotArea
+        paILeft  = pa.InsideLeft
+        paIWidth = pa.InsideWidth
+        paITop   = pa.InsideTop
+        paIHeight = pa.InsideHeight
 
         If nRows > 1 Then
             ckStepPt = paIWidth / (nRows - 1) * tickStep
         Else
             ckStepPt = paIWidth
         End If
-        ckW    = ckStepPt - 1
+        ckW = ckStepPt - 1
         If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
-        ' pa.Top + pa.Height = нижний край PlotArea вместе с метками оси X
-        ' Синяя шкала реального времени — на 14pt ниже серой шкалы (чтобы не перекрывались)
-        ckYpos = pa.Top + pa.Height + 14
+
+        ' Шкала 1 (серая, длительность цикла): сразу под линиями графика
+        Dim grayYpos As Double : grayYpos = paITop + paIHeight + 2
+        ' Шкала 2 (синяя, реальное время): на 13pt ниже серой
+        Dim blueYpos As Double : blueYpos = paITop + paIHeight + 15
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
-            ' Читаем время из столбца B: Excel хранит как дробь 0..1 (сутки)
-            ' Берём строку данного цикла — rStart + ckTki - 1
+            Dim xPt As Double
+            xPt = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
+
+            ' --- Серая метка: длительность от начала цикла (00:00, 00:11, ...) ---
+            Dim grayLabel As String
+            grayLabel = timeLabels(ckTki)
+            Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPt, grayYpos, ckW, 12)
+            With ckTb
+                .Line.Visible = msoFalse : .Fill.Visible = msoFalse
+                With .TextFrame2.TextRange
+                    .Text = grayLabel
+                    .Font.Size = 7
+                    .ParagraphFormat.Alignment = msoAlignCenter
+                    .Font.Fill.ForeColor.RGB = RGB(50, 50, 50)
+                    .Font.Bold = False
+                End With
+                .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
+            End With
+
+            ' --- Синяя метка: реальное время суток ---
             ckTvB = wsData.Cells(rStart + ckTki - 1, 2).Value
             ckLabel = ""
             If IsNumeric(ckTvB) Then
-                ' Int а не CLng — CLng может округлить 59мин→60
                 ckAllMin = Int(CDbl(ckTvB) * 1440)
                 ckHH     = Int(ckAllMin / 60) Mod 24
                 ckMM     = ckAllMin Mod 60
                 ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
             ElseIf InStr(CStr(ckTvB), ":") > 0 Then
-                ' Если хранится строкой "HH:MM:SS"
                 On Error Resume Next
                 ckTV2   = CDate(ckTvB)
                 ckLabel = Format(Hour(ckTV2), "00") & ":" & Format(Minute(ckTV2), "00")
                 On Error GoTo 0
             End If
             If ckLabel <> "" Then
-                ckXpos = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
-                Set ckTb = .Shapes.AddTextbox( _
-                    msoTextOrientationHorizontal, ckXpos, ckYpos, ckW, 12)
+                Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPt, blueYpos, ckW, 12)
                 With ckTb
-                    .Line.Visible  = msoFalse
-                    .Fill.Visible  = msoFalse
+                    .Line.Visible = msoFalse : .Fill.Visible = msoFalse
                     With .TextFrame2.TextRange
                         .Text = ckLabel
                         .Font.Size = 7
@@ -1814,17 +1831,32 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
                         .Font.Bold = False
                     End With
-                    .TextFrame.MarginLeft   = 0
-                    .TextFrame.MarginRight  = 0
-                    .TextFrame.MarginTop    = 0
-                    .TextFrame.MarginBottom = 0
+                    .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                    .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
                 End With
-                ckLastAdded = ckTki
             End If
+            ckLastAdded = ckTki
         Next ckTki
 
-        ' Последняя точка — если не попала в Step, рисуем отдельно
+        ' Последняя точка — если не попала в Step
         If ckLastAdded < nRows Then
+            Dim xPtLast As Double
+            xPtLast = paILeft + paIWidth - ckW / 2
+            ' Серая последняя
+            Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, grayYpos, ckW, 12)
+            With ckTb
+                .Line.Visible = msoFalse : .Fill.Visible = msoFalse
+                With .TextFrame2.TextRange
+                    .Text = timeLabels(nRows)
+                    .Font.Size = 7
+                    .ParagraphFormat.Alignment = msoAlignCenter
+                    .Font.Fill.ForeColor.RGB = RGB(50, 50, 50)
+                    .Font.Bold = False
+                End With
+                .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
+            End With
+            ' Синяя последняя
             ckTvB = wsData.Cells(rStart + nRows - 1, 2).Value
             ckLabel = ""
             If IsNumeric(ckTvB) Then
@@ -1834,12 +1866,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
             End If
             If ckLabel <> "" Then
-                ckXpos = paILeft + paIWidth - ckW / 2
-                Set ckTb = .Shapes.AddTextbox( _
-                    msoTextOrientationHorizontal, ckXpos, ckYpos, ckW, 12)
+                Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, blueYpos, ckW, 12)
                 With ckTb
-                    .Line.Visible  = msoFalse
-                    .Fill.Visible  = msoFalse
+                    .Line.Visible = msoFalse : .Fill.Visible = msoFalse
                     With .TextFrame2.TextRange
                         .Text = ckLabel
                         .Font.Size = 7
@@ -1847,10 +1876,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
                         .Font.Bold = False
                     End With
-                    .TextFrame.MarginLeft   = 0
-                    .TextFrame.MarginRight  = 0
-                    .TextFrame.MarginTop    = 0
-                    .TextFrame.MarginBottom = 0
+                    .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                    .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
                 End With
             End If
         End If
