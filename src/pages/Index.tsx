@@ -167,13 +167,8 @@ Sub Autoclave_ProcessCSV()
         End If
     Next trefScan
     Dim trefNorm As Double
-    If tKscan >= 118# Then
-        trefNorm = 5.5 : trefInfoStr = "Стерилизация: Tref = 120C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
-    ElseIf tKscan >= 100# Then
-        trefNorm = 3# : trefInfoStr = "Стерилизация: Tref = 115C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 3"
-    Else
-        trefNorm = 5.5 : trefInfoStr = "Стерилизация: Tref = " & Format(T_REF, "0.0") & "C  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
-    End If
+    trefNorm = 5.5
+    trefInfoStr = "Стерилизация: Tref = 121.1C (ГОСТ)  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 5.5"
 
     Call PrepareReportSheet(wb, wsReport, csvFileName, trefInfoStr)
     Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow)
@@ -1162,22 +1157,9 @@ P2Next:
 
         Dim result As String, resultColor As Long, noteText As String
 
-        ' Норма F0 и описание программы — зависят от Tref
-        Dim f0Norm As Double
-        Dim trefStr As String
-        If tRefCycle >= 119# Then
-            ' Программа 120°C (Tref=120): стерилизация, норма F0 >= 5.5
-            f0Norm = 5.5
-            trefStr = "Программа 120C, Tref=120C, z=10"
-        ElseIf tRefCycle >= 113# Then
-            ' Программа 115°C (Tref=115): пастеризация, норма F0 >= 3
-            f0Norm = 3#
-            trefStr = "Программа 115C, Tref=115C, z=10"
-        Else
-            ' Нестандартная / не определена
-            f0Norm = 5.5
-            trefStr = "Tref=" & Format(tRefCycle, "0.0") & "C, z=10"
-        End If
+        ' Норма F0 по ГОСТ — единая для всех программ
+        Dim f0Norm As Double : f0Norm = 5.5
+        Dim trefStr As String : trefStr = "Tref=121.1C (ГОСТ), z=10"
 
         If Not peakC Then
             result = "— Без стерилизации"
