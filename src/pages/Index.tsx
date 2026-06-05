@@ -1486,27 +1486,19 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If arrPressure(ri) > pressMaxVal Then pressMaxVal = arrPressure(ri)
     Next ri
 
-    ' Проход 1б: сглаживаем давление — убираем падение в конце
-    ' Берём скользящий максимум: каждая точка = max(текущее, предыдущее)*0.995
-    ' Это убирает зигзаги и падение — линия идёт горизонтально до конца
-    Dim pressRunMax As Double : pressRunMax = 0
-    For ri = 1 To nRows
-        If arrPressure(ri) > pressRunMax Then pressRunMax = arrPressure(ri)
-    Next ri
-    ' Находим точку где давление начало устойчиво падать ниже 80% максимума
-    Dim pressDropRi As Long : pressDropRi = 0
-    Dim pressPrev As Double : pressPrev = 0
-    For ri = 1 To nRows
-        If arrPressure(ri) >= pressRunMax * 0.5 Then pressPrev = arrPressure(ri)
-        If pressPrev > 0 And arrPressure(ri) < pressRunMax * 0.5 And pressDropRi = 0 Then
-            pressDropRi = ri
+    ' Проход 1б: находим последнее ненулевое давление и продлеваем до конца
+    ' Это нужно чтобы коричневая линия не падала вниз в конце графика
+    Dim pressLastRi As Long : pressLastRi = 0
+    For ri = nRows To 1 Step -1
+        If arrPressure(ri) > 0.01 Then
+            pressLastRi = ri
+            Exit For
         End If
     Next ri
-    ' После точки падения — держим последнее стабильное значение
-    If pressDropRi > 1 Then
-        Dim pressHoldVal As Double : pressHoldVal = pressPrev
-        For ri = pressDropRi To nRows
-            arrPressure(ri) = pressHoldVal
+    If pressLastRi > 0 And pressLastRi < nRows Then
+        Dim pressLastVal As Double : pressLastVal = arrPressure(pressLastRi)
+        For ri = pressLastRi + 1 To nRows
+            arrPressure(ri) = pressLastVal
         Next ri
     End If
 
