@@ -1227,7 +1227,7 @@ P2Next:
         validCycleCount = validCycleCount + 1
         noteArr(validCycleCount) = noteText
         resultArr(validCycleCount) = result
-        resultColorArr(validCycleCount) = resultColor
+        resultColorArr(validCycleCount) = resultBgColor
 
         reportRow = reportRow + 1
 NextCycle:
@@ -1288,13 +1288,21 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
             .Cells(reportRow, 1).Value = ni
             .Cells(reportRow, 1).HorizontalAlignment = xlCenter
             .Cells(reportRow, 2).Value = resultArr(ni)
-            .Cells(reportRow, 2).Font.Color = resultColorArr(ni)
+            .Cells(reportRow, 2).Interior.Color = resultColorArr(ni)
+            ' Белый шрифт на красном, чёрный — на зелёном/жёлтом/сером
+            If resultColorArr(ni) = RGB(210, 30, 30) Then
+                .Cells(reportRow, 2).Font.Color = RGB(255, 255, 255)
+            Else
+                .Cells(reportRow, 2).Font.Color = RGB(0, 0, 0)
+            End If
             .Cells(reportRow, 2).Font.Bold = True
             .Cells(reportRow, 3).Value = noteArr(ni)
             If ni Mod 2 = 0 Then
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Interior.Color = RGB(240, 246, 252)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 1)).Interior.Color = RGB(240, 246, 252)
+                .Range(.Cells(reportRow, 3), .Cells(reportRow, 3)).Interior.Color = RGB(240, 246, 252)
             Else
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Interior.Color = RGB(255, 255, 255)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 1)).Interior.Color = RGB(255, 255, 255)
+                .Range(.Cells(reportRow, 3), .Cells(reportRow, 3)).Interior.Color = RGB(255, 255, 255)
             End If
             .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Font.Color = RGB(30, 30, 30)
             .Cells(reportRow, 2).Font.Color = resultColorArr(ni)
