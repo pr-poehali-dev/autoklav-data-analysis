@@ -1155,7 +1155,7 @@ P2Next:
         Dim f0Cycle As Double : f0Cycle = f0C
         Dim tRefCycle As Double : tRefCycle = tRefC
 
-        Dim result As String, resultColor As Long, noteText As String
+        Dim result As String, resultBgColor As Long, resultFontColor As Long, noteText As String
 
         ' Норма F0 по ГОСТ — единая для всех программ
         Dim f0Norm As Double : f0Norm = 8#
@@ -1163,19 +1163,23 @@ P2Next:
 
         If Not peakC Then
             result = "— Без стерилизации"
-            resultColor = RGB(100, 120, 140)
+            resultBgColor = RGB(220, 225, 230)
+            resultFontColor = RGB(60, 60, 60)
             noteText = "Пик T < 100C — только прогрев"
         ElseIf f0Cycle >= f0Norm Then
             result = "OK НОРМА (F0 >= " & f0Norm & ")"
-            resultColor = RGB(0, 160, 80)
+            resultBgColor = RGB(0, 185, 90)      ' зелёный фон
+            resultFontColor = RGB(0, 0, 0)        ' чёрные буквы
             noteText = trefStr
         ElseIf f0Cycle >= f0Norm / 2 Then
             result = "! ПРЕДЕЛ (F0 >= " & f0Norm / 2 & ")"
-            resultColor = RGB(220, 140, 0)
+            resultBgColor = RGB(255, 220, 0)      ' жёлтый фон
+            resultFontColor = RGB(0, 0, 0)        ' чёрные буквы
             noteText = trefStr
         Else
             result = "X НЕДОСТАТОЧНО (F0 < " & f0Norm / 2 & ")"
-            resultColor = RGB(200, 40, 40)
+            resultBgColor = RGB(210, 30, 30)      ' красный фон
+            resultFontColor = RGB(255, 255, 255)  ' белые буквы
             noteText = trefStr
         End If
 
@@ -1205,16 +1209,17 @@ P2Next:
             .Cells(reportRow, 8).Value = result
 
             .Cells(reportRow, 7).NumberFormat = "0.0000"
-            .Cells(reportRow, 8).Font.Color = resultColor
-            .Cells(reportRow, 8).Font.Bold = True
 
             If ci Mod 2 = 0 Then
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Interior.Color = RGB(240, 246, 252)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Interior.Color = RGB(240, 246, 252)
             Else
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Interior.Color = RGB(255, 255, 255)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Interior.Color = RGB(255, 255, 255)
             End If
             .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Font.Color = RGB(30, 30, 30)
-            .Cells(reportRow, 8).Font.Color = resultColor
+
+            ' Ячейка результата — цветной фон + контрастный шрифт
+            .Cells(reportRow, 8).Interior.Color = resultBgColor
+            .Cells(reportRow, 8).Font.Color = resultFontColor
             .Cells(reportRow, 8).Font.Bold = True
         End With
 
