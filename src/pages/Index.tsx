@@ -261,10 +261,18 @@ Function NeedsPreviousFile(wsData As Worksheet) As Boolean
 
         If IsNumeric(timeRaw) Then
             timeDbl = CDbl(timeRaw)
-        ElseIf InStr(CStr(timeRaw), ":") > 0 Then
-            On Error Resume Next
-            timeDbl = CDbl(TimeValue(Trim(CStr(timeRaw))))
-            On Error GoTo 0
+        Else
+            Dim trStr As String : trStr = Trim(CStr(timeRaw))
+            If Len(trStr) >= 4 And InStr(trStr, ":") > 0 Then
+                Dim trH As String : trH = Left(trStr, InStr(trStr, ":") - 1)
+                If IsNumeric(trH) Then
+                    On Error Resume Next
+                    Dim trRes As Date : trRes = TimeValue(trStr)
+                    If Err.Number = 0 Then timeDbl = CDbl(trRes)
+                    Err.Clear
+                    On Error GoTo 0
+                End If
+            End If
         End If
 
         ' Время до 1 минуты от полуночи (< 0.0007 в дробях Excel = ~1 мин)
@@ -307,10 +315,18 @@ Function NeedsNextFile(wsData As Worksheet) As Boolean
         timeDbl = 0
         If IsNumeric(timeRaw) Then
             timeDbl = CDbl(timeRaw)
-        ElseIf InStr(CStr(timeRaw), ":") > 0 Then
-            On Error Resume Next
-            timeDbl = CDbl(TimeValue(Trim(CStr(timeRaw))))
-            On Error GoTo 0
+        Else
+            Dim trStr2 As String : trStr2 = Trim(CStr(timeRaw))
+            If Len(trStr2) >= 4 And InStr(trStr2, ":") > 0 Then
+                Dim trH2 As String : trH2 = Left(trStr2, InStr(trStr2, ":") - 1)
+                If IsNumeric(trH2) Then
+                    On Error Resume Next
+                    Dim trRes2 As Date : trRes2 = TimeValue(trStr2)
+                    If Err.Number = 0 Then timeDbl = CDbl(trRes2)
+                    Err.Clear
+                    On Error GoTo 0
+                End If
+            End If
         End If
 
         ' Время после 23:55 (> 0.9965 в дробях Excel) и температура горячая
@@ -912,10 +928,25 @@ Function RowAbsSeconds(ws As Worksheet, r As Long) As Double
     timeFrac = 0
     If IsNumeric(tv) Then
         timeFrac = CDbl(tv)
-    ElseIf InStr(CStr(tv), ":") > 0 Then
-        On Error Resume Next
-        timeFrac = CDbl(TimeValue(Trim(CStr(tv))))
-        On Error GoTo 0
+    Else
+        Dim tvStr As String : tvStr = Trim(CStr(tv))
+        ' Убираем кавычки если есть
+        If Len(tvStr) >= 2 And Left(tvStr, 1) = Chr(34) Then
+            tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
+        End If
+        ' TimeValue вызываем только если строка похожа на HH:MM и не пустая
+        If Len(tvStr) >= 4 And InStr(tvStr, ":") > 0 Then
+            Dim hPart As String
+            hPart = Left(tvStr, InStr(tvStr, ":") - 1)
+            If IsNumeric(hPart) Then
+                On Error Resume Next
+                Dim tvResult As Date
+                tvResult = TimeValue(tvStr)
+                If Err.Number = 0 Then timeFrac = CDbl(tvResult)
+                Err.Clear
+                On Error GoTo 0
+            End If
+        End If
     End If
 
     If dateDays > 0 Then
@@ -1956,16 +1987,21 @@ Function FormatDateTime_FromRow(ws As Worksheet, rowIdx As Long) As String
     ' Вариант 1: время как строка "HH:MM:SS" (столбец B)
     Dim tvStr As String
     tvStr = Trim(CStr(timeVal))
-    If InStr(tvStr, ":") > 0 Then
-        ' Убираем возможные кавычки
-        If Left(tvStr, 1) = Chr(34) Then tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
-        On Error Resume Next
-        Dim tvCDate As Date
-        tvCDate = TimeValue(tvStr)
-        If Err.Number = 0 Then
-            timePart = Format(tvCDate, "hh:mm:ss")
+    If Len(tvStr) >= 2 And Left(tvStr, 1) = Chr(34) Then
+        tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
+    End If
+    If Len(tvStr) >= 4 And InStr(tvStr, ":") > 0 Then
+        Dim tvH As String : tvH = Left(tvStr, InStr(tvStr, ":") - 1)
+        If IsNumeric(tvH) Then
+            On Error Resume Next
+            Dim tvCDate As Date
+            tvCDate = TimeValue(tvStr)
+            If Err.Number = 0 Then
+                timePart = Format(tvCDate, "hh:mm:ss")
+            End If
+            Err.Clear
+            On Error GoTo 0
         End If
-        On Error GoTo 0
     End If
 
     ' Вариант 2: время как дробь Excel (0..1)
@@ -2025,11 +2061,20 @@ Function GetDateTimeAsDouble(ws As Worksheet, rowIdx As Long) As Double
     Else
         Dim tvs As String
         tvs = Trim(CStr(timeVal))
-        If Left(tvs, 1) = Chr(34) Then tvs = Mid(tvs, 2, Len(tvs) - 2)
-        If InStr(tvs, ":") > 0 Then
-            On Error Resume Next
-            timeDbl = CDbl(TimeValue(tvs))
-            On Error GoTo 0
+        If Len(tvs) >= 2 And Left(tvs, 1) = Chr(34) Then
+            tvs = Mid(tvs, 2, Len(tvs) - 2)
+        End If
+        If Len(tvs) >= 4 And InStr(tvs, ":") > 0 Then
+            Dim hPartT As String
+            hPartT = Left(tvs, InStr(tvs, ":") - 1)
+            If IsNumeric(hPartT) Then
+                On Error Resume Next
+                Dim tvRes As Date
+                tvRes = TimeValue(tvs)
+                If Err.Number = 0 Then timeDbl = CDbl(tvRes)
+                Err.Clear
+                On Error GoTo 0
+            End If
         End If
     End If
 
