@@ -1622,7 +1622,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim ckYpos    As Double
     Dim ckW       As Double
     Dim ckTb      As Shape
-    Dim ckTV2     As Date
+    Dim ckTV2        As Date
+    Dim ckLastAdded  As Long
 
     With cht
         .HasTitle = True
@@ -1708,8 +1709,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ckW    = ckStepPt - 1
         If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
-        ckYpos = paITop + paIHeight + 14  ' ниже оси X — под серыми метками длительности
+        ckYpos = paITop + paIHeight + 22  ' ниже оси X — под серыми метками (22pt отступ)
 
+        ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
             ' Читаем время из столбца B: Excel хранит как дробь 0..1 (сутки)
             ' Берём строку данного цикла — rStart + ckTki - 1
@@ -1747,8 +1749,41 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .TextFrame.MarginTop    = 0
                     .TextFrame.MarginBottom = 0
                 End With
+                ckLastAdded = ckTki
             End If
         Next ckTki
+
+        ' Последняя точка — если не попала в Step, рисуем отдельно
+        If ckLastAdded < nRows Then
+            ckTvB = wsData.Cells(rStart + nRows - 1, 2).Value
+            ckLabel = ""
+            If IsNumeric(ckTvB) Then
+                ckAllMin = Int(CDbl(ckTvB) * 1440)
+                ckHH     = Int(ckAllMin / 60) Mod 24
+                ckMM     = ckAllMin Mod 60
+                ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
+            End If
+            If ckLabel <> "" Then
+                ckXpos = paILeft + paIWidth - ckW / 2
+                Set ckTb = .Shapes.AddTextbox( _
+                    msoTextOrientationHorizontal, ckXpos, ckYpos, ckW, 12)
+                With ckTb
+                    .Line.Visible  = msoFalse
+                    .Fill.Visible  = msoFalse
+                    With .TextFrame2.TextRange
+                        .Text = ckLabel
+                        .Font.Size = 7
+                        .ParagraphFormat.Alignment = msoAlignCenter
+                        .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
+                        .Font.Bold = False
+                    End With
+                    .TextFrame.MarginLeft   = 0
+                    .TextFrame.MarginRight  = 0
+                    .TextFrame.MarginTop    = 0
+                    .TextFrame.MarginBottom = 0
+                End With
+            End If
+        End If
 
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
