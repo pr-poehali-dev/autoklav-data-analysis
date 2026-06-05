@@ -1923,13 +1923,17 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         If heatMidRi < 1 Then heatMidRi = 1
 
-        ' --- Серия 1 (T среды, синяя): цифра "1" в начале нагрева, высоко над линией ---
-        ' Берём точку ~20% от середины нагрева — там T среды ещё низко, метка не сольётся с F0
+        ' --- Серия 1 (T среды, синяя): цифра "1" в зоне охлаждения (середина между rHoldEnd и rEnd) ---
+        ' Там F0 горизонтальна и синяя линия идёт вниз — не пересекаются
         On Error Resume Next
         Set sr1 = .SeriesCollection(1)
         ptCount1 = sr1.Points.Count
         If ptCount1 > 0 Then
-            lbl1Pt = CLng(heatMidRi * 0.2)
+            If rHoldEnd > 0 And rEnd > rHoldEnd Then
+                lbl1Pt = (rHoldEnd - rStart) + CLng((rEnd - rHoldEnd) * 0.3)
+            Else
+                lbl1Pt = CLng(nRows * 0.75)
+            End If
             If lbl1Pt < 1 Then lbl1Pt = 1
             If lbl1Pt > ptCount1 Then lbl1Pt = ptCount1
             sr1.HasDataLabels = False
@@ -2035,27 +2039,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If coolMidRi > nRows Then coolMidRi = nRows
 
         On Error Resume Next
-        ' --- Цифра "1" справа — слева от точки, выше линии ---
-        Set sr1r = .SeriesCollection(1)
-        ptCnt1r = sr1r.Points.Count
-        If ptCnt1r > 0 Then
-            lbl1r = coolMidRi
-            If lbl1r > ptCnt1r Then lbl1r = ptCnt1r
-            Set pt1r = sr1r.Points(lbl1r)
-            pt1r.HasDataLabel = True
-            With pt1r.DataLabel
-                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
-                .NumberFormat = "@" : .Characters.Text = "1"
-                .Font.Size = 18 : .Font.Bold = True
-                .Font.Color = RGB(30, 80, 200)
-                .Position = xlLabelPositionLeft
-            End With
-        End If
-        ' --- Цифра "2" справа ---
+        ' --- Цифра "2" справа (зона охлаждения) ---
         Set sr2r = .SeriesCollection(2)
         ptCnt2r = sr2r.Points.Count
         If ptCnt2r > 0 Then
-            lbl2r = CLng(coolMidRi * 1.05)
+            lbl2r = coolMidRi
             If lbl2r > ptCnt2r Then lbl2r = ptCnt2r
             Set pt2r = sr2r.Points(lbl2r)
             pt2r.HasDataLabel = True
@@ -2064,7 +2052,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .NumberFormat = "@" : .Characters.Text = "2"
                 .Font.Size = 18 : .Font.Bold = True
                 .Font.Color = RGB(210, 30, 30)
-                .Position = xlLabelPositionBelow
+                .Position = xlLabelPositionAbove
             End With
         End If
         ' --- Цифра "5" (давление) справа — только если серия есть ---
