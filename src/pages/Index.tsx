@@ -2133,7 +2133,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             tbTop  = co.Top + 160   ' под легендой (легенда ~5 строк * 14pt + заголовок)
 
             ' Левый TextBox — метки (жирные)
-            Dim tbLabels As Shape
             Set tbLabels = ws.Shapes.AddTextbox( _
                 msoTextOrientationHorizontal, tbLeft, tbTop, 75, 90)
             With tbLabels
@@ -2158,7 +2157,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             End With
 
             ' Правый TextBox — значения (обычный шрифт)
-            Dim tbValues As Shape
             Set tbValues = ws.Shapes.AddTextbox( _
                 msoTextOrientationHorizontal, tbLeft + 72, tbTop, 60, 90)
             With tbValues
