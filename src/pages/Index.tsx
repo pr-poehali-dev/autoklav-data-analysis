@@ -1437,25 +1437,20 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     holdStr = FormatMinSec(phaseHoldSec)
     coolStr = FormatMinSec(phaseCoolSec)
 
-    ' --- Метки времени на оси X (формат HH:MM) ---
+    ' --- Метки времени на оси X — накопительное время от начала цикла ---
+    ' Используем абсолютные секунды чтобы корректно пересекать полночь
     Dim timeLabels() As String
     ReDim timeLabels(1 To nRows)
     Dim ri As Long
+    Dim secBase As Double : secBase = RowAbsSeconds(wsData, rStart)
     For ri = 1 To nRows
-        timeLabels(ri) = FormatDateTime_FromRow(wsData, rStart + ri - 1)
-        ' Оставляем только время HH:MM
-        Dim fullLabel As String : fullLabel = timeLabels(ri)
-        Dim spPos As Integer : spPos = InStr(fullLabel, " ")
-        If spPos > 0 Then
-            Dim timePart2 As String : timePart2 = Mid(fullLabel, spPos + 1)
-            ' Обрезаем до HH:MM (убираем секунды)
-            Dim colPos As Integer : colPos = InStr(timePart2, ":")
-            If colPos > 0 Then
-                colPos = InStr(colPos + 1, timePart2, ":")
-                If colPos > 0 Then timePart2 = Left(timePart2, colPos - 1)
-            End If
-            timeLabels(ri) = timePart2
-        End If
+        Dim secCur As Double : secCur = RowAbsSeconds(wsData, rStart + ri - 1)
+        Dim secElapsed As Double : secElapsed = secCur - secBase
+        If secElapsed < 0 Then secElapsed = 0
+        Dim elMin As Long : elMin = CLng(Int(secElapsed / 60))
+        Dim elHr As Long  : elHr  = CLng(Int(elMin / 60))
+        Dim elMn As Long  : elMn  = elMin Mod 60
+        timeLabels(ri) = Format(elHr, "00") & ":" & Format(elMn, "00")
     Next ri
 
     ' --- Данные серий ---
