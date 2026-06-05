@@ -1622,6 +1622,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim ckYpos    As Double
     Dim ckW       As Double
     Dim ckTb      As Shape
+    Dim ckTV2     As Date
 
     With cht
         .HasTitle = True
@@ -1705,20 +1706,32 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             ckStepPt = paIWidth
         End If
         ckW    = ckStepPt - 1
-        If ckW < 26 Then ckW = 26
+        If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
         ckYpos = paITop + paIHeight + 14  ' ниже оси X — под серыми метками длительности
 
         For ckTki = 1 To nRows Step tickStep
+            ' Читаем время из столбца B: Excel хранит как дробь 0..1 (сутки)
+            ' Берём строку данного цикла — rStart + ckTki - 1
             ckTvB = wsData.Cells(rStart + ckTki - 1, 2).Value
+            ckLabel = ""
             If IsNumeric(ckTvB) Then
-                ckAllMin = CLng(Int(CDbl(ckTvB) * 1440))
-                ckHH     = CLng(Int(ckAllMin / 60)) Mod 24
+                ' Int а не CLng — CLng может округлить 59мин→60
+                ckAllMin = Int(CDbl(ckTvB) * 1440)
+                ckHH     = Int(ckAllMin / 60) Mod 24
                 ckMM     = ckAllMin Mod 60
                 ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
-                ckXpos   = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
+            ElseIf InStr(CStr(ckTvB), ":") > 0 Then
+                ' Если хранится строкой "HH:MM:SS"
+                On Error Resume Next
+                ckTV2   = CDate(ckTvB)
+                ckLabel = Format(Hour(ckTV2), "00") & ":" & Format(Minute(ckTV2), "00")
+                On Error GoTo 0
+            End If
+            If ckLabel <> "" Then
+                ckXpos = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
                 Set ckTb = .Shapes.AddTextbox( _
-                    msoTextOrientationHorizontal, ckXpos, ckYpos, ckW, 11)
+                    msoTextOrientationHorizontal, ckXpos, ckYpos, ckW, 12)
                 With ckTb
                     .Line.Visible  = msoFalse
                     .Fill.Visible  = msoFalse
@@ -1729,6 +1742,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                         .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
                         .Font.Bold = False
                     End With
+                    .TextFrame.MarginLeft   = 0
+                    .TextFrame.MarginRight  = 0
+                    .TextFrame.MarginTop    = 0
+                    .TextFrame.MarginBottom = 0
                 End With
             End If
         Next ckTki
