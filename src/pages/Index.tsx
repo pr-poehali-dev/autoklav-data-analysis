@@ -1674,6 +1674,63 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .MajorTickMark = xlTickMarkCross
         End With
 
+        ' === Шкала реального времени суток — TextBox'ы над осью X ===
+        ' Располагаем между нижним краем PlotArea и нижним краем ChartArea
+        ' Каждый TextBox выровнен точно по позиции вертикальной линии сетки
+        Dim pa As PlotArea
+        Set pa = .PlotArea
+        ' Координаты PlotArea в точках относительно листа
+        Dim paLeft  As Double : paLeft  = co.Left + pa.InsideLeft
+        Dim paTop   As Double : paTop   = co.Top  + pa.InsideTop
+        Dim paW     As Double : paW     = pa.InsideWidth
+        Dim paBot   As Double : paBot   = co.Top  + pa.InsideTop + pa.InsideHeight
+
+        ' Ширина одного шага сетки в точках
+        Dim stepPt As Double
+        If nRows > 1 Then
+            stepPt = paW / (nRows - 1) * tickStep
+        Else
+            stepPt = paW
+        End If
+
+        ' Высота строки реального времени — между осью X и нижним краем ChartArea
+        Dim rtTop As Double  : rtTop  = paBot + 2   ' чуть ниже оси
+        Dim rtH   As Double  : rtH    = 12
+        Dim rtW   As Double  : rtW    = stepPt * 0.9
+        If rtW < 18 Then rtW = 18
+        If rtW > 60 Then rtW = 60
+
+        ' Рисуем метки реального времени по каждому tickStep-му индексу
+        Dim tki As Long
+        For tki = 1 To nRows Step tickStep
+            ' Реальное время этой строки данных
+            Dim rtSec As Double : rtSec = RowAbsSeconds(wsData, rStart + tki - 1)
+            Dim rtTotalMin As Long : rtTotalMin = CLng(Int(rtSec / 60))
+            Dim rtH2 As Long : rtH2 = CLng(Int(rtTotalMin / 60)) Mod 24
+            Dim rtM2 As Long : rtM2 = rtTotalMin Mod 60
+            Dim rtLabel As String : rtLabel = Format(rtH2, "00") & ":" & Format(rtM2, "00")
+
+            ' X-позиция метки (центрируем по точке)
+            Dim xPos As Double
+            xPos = paLeft + (tki - 1) * (paW / (nRows - 1)) - rtW / 2
+
+            Dim tbRt As Shape
+            Set tbRt = ws.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, xPos, rtTop, rtW, rtH)
+            With tbRt
+                .Line.Visible = msoFalse
+                .Fill.Visible = msoFalse
+                With .TextFrame2.TextRange
+                    .Text = rtLabel
+                    .Font.Size = 6.5
+                    .ParagraphFormat.Alignment = msoAlignCenter
+                    .Font.Fill.ForeColor.RGB = RGB(0, 80, 160)
+                End With
+                .TextFrame.HorizontalAlignment = xlHAlignCenter
+                .TextFrame.VerticalAlignment = xlVAlignTop
+            End With
+        Next tki
+
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
         .Legend.Interior.Color = RGB(255, 255, 255)
