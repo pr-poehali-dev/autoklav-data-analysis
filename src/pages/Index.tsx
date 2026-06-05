@@ -1369,11 +1369,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
-    ' A4 portrait: 841pt высота, поля 0.5cm (14pt) × 2 = 813pt рабочих
-    ' Один график занимает ровно одну страницу A4
-    ' Ширина: A4=595pt, поля 0.5cm×2=567pt → масштаб 567/760=74.6% → берём 760pt чтобы при 75% влезло
-    Const CHART_W As Long = 760   ' ширина графика
-    Const CHART_H As Long = 780   ' высота = одна страница A4 при масштабе 100%
+    Const CHART_W As Long = 790   ' ширина графика (pt)
+    Const CHART_H As Long = 490   ' высота графика (pt) — при FitToPagesWide=1 один график = одна страница A4
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1698,6 +1695,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End With
 
         ' === Реальное время суток — синие TextBox внутри графика (Chart.Shapes) ===
+        ' pa.Top + pa.Height = нижний край ВНЕШНЕЙ рамки PlotArea (включает метки оси X)
+        ' InsideTop + InsideHeight = нижний край только области линий (без меток)
+        ' Используем внешний край + 3pt — синяя шкала всегда ниже серых меток
         Set pa     = .PlotArea
         paILeft    = pa.InsideLeft
         paIWidth   = pa.InsideWidth
@@ -1712,7 +1712,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ckW    = ckStepPt - 1
         If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
-        ckYpos = paITop + paIHeight + 28  ' ниже оси X — под серыми метками (28pt отступ)
+        ' pa.Top + pa.Height = нижний край PlotArea вместе с метками оси X
+        ckYpos = pa.Top + pa.Height + 3
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
@@ -2014,7 +2015,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 If tProdMaxCy >= T_PEAK_STERIL Then
                     cycIdx = cycIdx + 1
                     Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                    topOffset = topOffset + 813  ' CHART_H(780) + 33pt отступ = ровно одна страница A4
+                    topOffset = topOffset + 510  ' CHART_H(490) + 20pt отступ между графиками
                 End If
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
@@ -2023,19 +2024,21 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 ChartNext:
     Next p
 
-    ' Настройка печати: A4 портрет, масштаб 75% — график 760pt × 75% = 570pt (влезает в 567pt рабочих)
-    ' topOffset между графиками = 813pt = ровно одна страница A4 → каждый цикл на своём листе
+    ' Настройка печати: A4 портрет, FitToPagesWide=1 — Excel масштабирует ширину автоматически
+    ' При CHART_H=490 и topOffset=510 каждый график занимает ровно одну страницу A4
     With ws.PageSetup
-        .Orientation = xlPortrait
-        .PaperSize = xlPaperA4
-        .Zoom = 75
-        .LeftMargin   = Application.CentimetersToPoints(0.5)
-        .RightMargin  = Application.CentimetersToPoints(0.5)
-        .TopMargin    = Application.CentimetersToPoints(0.5)
-        .BottomMargin = Application.CentimetersToPoints(0.5)
+        .Orientation        = xlPortrait
+        .PaperSize          = xlPaperA4
+        .Zoom               = False
+        .FitToPagesWide     = 1
+        .FitToPagesTall     = False
+        .LeftMargin         = Application.CentimetersToPoints(1)
+        .RightMargin        = Application.CentimetersToPoints(1)
+        .TopMargin          = Application.CentimetersToPoints(1)
+        .BottomMargin       = Application.CentimetersToPoints(1)
         .CenterHorizontally = True
-        .PrintGridlines = False
-        .PrintHeadings  = False
+        .PrintGridlines     = False
+        .PrintHeadings      = False
     End With
 End Sub
 
