@@ -43,8 +43,8 @@ Sub Autoclave_ProcessCSV()
     ' Извлекаем имя файла без пути
     Dim csvFileName As String
     Dim csvFolder As String
-    csvFileName = Mid(filePath, InStrRev(filePath, Chr(92)) + 1)
-    csvFolder   = Left(filePath, InStrRev(filePath, Chr(92)))
+    csvFileName = Mid(filePath, InStrRev(filePath, "\\") + 1)
+    csvFolder   = Left(filePath, InStrRev(filePath, "\\"))
 
     ' ----------------------------------------------------------------
     ' Импортируем основной файл
@@ -140,7 +140,7 @@ Sub Autoclave_ProcessCSV()
     If prevFilePath <> "" Then
         Call PrependPreviousCSV(wb, wsData, prevFilePath)
         Dim prevName As String
-        prevName = Mid(prevFilePath, InStrRev(prevFilePath, Chr(92)) + 1)
+        prevName = Mid(prevFilePath, InStrRev(prevFilePath, "\\") + 1)
         csvFileName = prevName & " + " & csvFileName
     End If
 
@@ -150,7 +150,7 @@ Sub Autoclave_ProcessCSV()
     If nextFilePath <> "" Then
         Call AppendNextCSV(wb, wsData, nextFilePath)
         Dim nextName As String
-        nextName = Mid(nextFilePath, InStrRev(nextFilePath, Chr(92)) + 1)
+        nextName = Mid(nextFilePath, InStrRev(nextFilePath, "\\") + 1)
         csvFileName = csvFileName & " + " & nextName
     End If
 
@@ -261,23 +261,14 @@ Function NeedsPreviousFile(wsData As Worksheet) As Boolean
 
         If IsNumeric(timeRaw) Then
             timeDbl = CDbl(timeRaw)
-        Else
-            Dim trStr As String : trStr = Trim(CStr(timeRaw))
-            If Len(trStr) >= 4 And InStr(trStr, ":") > 0 Then
-                Dim trH As String : trH = Left(trStr, InStr(trStr, ":") - 1)
-                If IsNumeric(trH) Then
-                    On Error Resume Next
-                    Dim trRes As Date : trRes = TimeValue(trStr)
-                    If Err.Number = 0 Then timeDbl = CDbl(trRes)
-                    Err.Clear
-                    On Error GoTo 0
-                End If
-            End If
+        ElseIf InStr(CStr(timeRaw), ":") > 0 Then
+            On Error Resume Next
+            timeDbl = CDbl(TimeValue(Trim(CStr(timeRaw))))
+            On Error GoTo 0
         End If
 
-        ' Время до 1 минуты от полуночи (< 0.0007 в дробях Excel = ~1 мин)
-        ' Узкий порог чтобы не путать старт логгера в 00:00:07 с переходом суток
-        If tempCheck > 40 And timeDbl > 0 And timeDbl < 0.0007 Then
+        ' Время до 5 минут от полуночи (< 0.0035 в дробях Excel = ~5 мин)
+        If tempCheck > 40 And timeDbl < 0.0035 Then
             NeedsPreviousFile = True
             Exit Function
         End If
@@ -315,23 +306,14 @@ Function NeedsNextFile(wsData As Worksheet) As Boolean
         timeDbl = 0
         If IsNumeric(timeRaw) Then
             timeDbl = CDbl(timeRaw)
-        Else
-            Dim trStr2 As String : trStr2 = Trim(CStr(timeRaw))
-            If Len(trStr2) >= 4 And InStr(trStr2, ":") > 0 Then
-                Dim trH2 As String : trH2 = Left(trStr2, InStr(trStr2, ":") - 1)
-                If IsNumeric(trH2) Then
-                    On Error Resume Next
-                    Dim trRes2 As Date : trRes2 = TimeValue(trStr2)
-                    If Err.Number = 0 Then timeDbl = CDbl(trRes2)
-                    Err.Clear
-                    On Error GoTo 0
-                End If
-            End If
+        ElseIf InStr(CStr(timeRaw), ":") > 0 Then
+            On Error Resume Next
+            timeDbl = CDbl(TimeValue(Trim(CStr(timeRaw))))
+            On Error GoTo 0
         End If
 
         ' Время после 23:55 (> 0.9965 в дробях Excel) и температура горячая
-        ' timeDbl > 0 исключает случай когда время не распозналось (осталось 0)
-        If tempCheck > 40 And timeDbl > 0 And timeDbl > 0.9965 Then
+        If tempCheck > 40 And timeDbl > 0.9965 Then
             NeedsNextFile = True
             Exit Function
         End If
@@ -928,25 +910,10 @@ Function RowAbsSeconds(ws As Worksheet, r As Long) As Double
     timeFrac = 0
     If IsNumeric(tv) Then
         timeFrac = CDbl(tv)
-    Else
-        Dim tvStr As String : tvStr = Trim(CStr(tv))
-        ' Убираем кавычки если есть
-        If Len(tvStr) >= 2 And Left(tvStr, 1) = Chr(34) Then
-            tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
-        End If
-        ' TimeValue вызываем только если строка похожа на HH:MM и не пустая
-        If Len(tvStr) >= 4 And InStr(tvStr, ":") > 0 Then
-            Dim hPart As String
-            hPart = Left(tvStr, InStr(tvStr, ":") - 1)
-            If IsNumeric(hPart) Then
-                On Error Resume Next
-                Dim tvResult As Date
-                tvResult = TimeValue(tvStr)
-                If Err.Number = 0 Then timeFrac = CDbl(tvResult)
-                Err.Clear
-                On Error GoTo 0
-            End If
-        End If
+    ElseIf InStr(CStr(tv), ":") > 0 Then
+        On Error Resume Next
+        timeFrac = CDbl(TimeValue(Trim(CStr(tv))))
+        On Error GoTo 0
     End If
 
     If dateDays > 0 Then
@@ -1831,25 +1798,13 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
-    Dim wsOld As Worksheet
-    For Each wsOld In wb.Sheets
-        On Error Resume Next
-        If wsOld.Name = "График" Or wsOld.Name = Chr(1043) & Chr(1088) & Chr(1072) & Chr(1092) & Chr(1080) & Chr(1082) Then
-            wsOld.Unprotect
-            wsOld.Delete
-        End If
-        On Error GoTo 0
-    Next wsOld
+    For Each ws In wb.Sheets
+        If ws.Name = "График" Then ws.Delete
+    Next ws
     Application.DisplayAlerts = True
 
     Set ws = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
-    On Error Resume Next
     ws.Name = "График"
-    If Err.Number <> 0 Then
-        Err.Clear
-        ws.Name = "График_" & Format(Now(), "hhmmss")
-    End If
-    On Error GoTo 0
     ws.Cells.Interior.Color = RGB(245, 248, 252)
 
     ' Заголовок листа
@@ -1987,21 +1942,16 @@ Function FormatDateTime_FromRow(ws As Worksheet, rowIdx As Long) As String
     ' Вариант 1: время как строка "HH:MM:SS" (столбец B)
     Dim tvStr As String
     tvStr = Trim(CStr(timeVal))
-    If Len(tvStr) >= 2 And Left(tvStr, 1) = Chr(34) Then
-        tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
-    End If
-    If Len(tvStr) >= 4 And InStr(tvStr, ":") > 0 Then
-        Dim tvH As String : tvH = Left(tvStr, InStr(tvStr, ":") - 1)
-        If IsNumeric(tvH) Then
-            On Error Resume Next
-            Dim tvCDate As Date
-            tvCDate = TimeValue(tvStr)
-            If Err.Number = 0 Then
-                timePart = Format(tvCDate, "hh:mm:ss")
-            End If
-            Err.Clear
-            On Error GoTo 0
+    If InStr(tvStr, ":") > 0 Then
+        ' Убираем возможные кавычки
+        If Left(tvStr, 1) = Chr(34) Then tvStr = Mid(tvStr, 2, Len(tvStr) - 2)
+        On Error Resume Next
+        Dim tvCDate As Date
+        tvCDate = TimeValue(tvStr)
+        If Err.Number = 0 Then
+            timePart = Format(tvCDate, "hh:mm:ss")
         End If
+        On Error GoTo 0
     End If
 
     ' Вариант 2: время как дробь Excel (0..1)
@@ -2061,20 +2011,11 @@ Function GetDateTimeAsDouble(ws As Worksheet, rowIdx As Long) As Double
     Else
         Dim tvs As String
         tvs = Trim(CStr(timeVal))
-        If Len(tvs) >= 2 And Left(tvs, 1) = Chr(34) Then
-            tvs = Mid(tvs, 2, Len(tvs) - 2)
-        End If
-        If Len(tvs) >= 4 And InStr(tvs, ":") > 0 Then
-            Dim hPartT As String
-            hPartT = Left(tvs, InStr(tvs, ":") - 1)
-            If IsNumeric(hPartT) Then
-                On Error Resume Next
-                Dim tvRes As Date
-                tvRes = TimeValue(tvs)
-                If Err.Number = 0 Then timeDbl = CDbl(tvRes)
-                Err.Clear
-                On Error GoTo 0
-            End If
+        If Left(tvs, 1) = Chr(34) Then tvs = Mid(tvs, 2, Len(tvs) - 2)
+        If InStr(tvs, ":") > 0 Then
+            On Error Resume Next
+            timeDbl = CDbl(TimeValue(tvs))
+            On Error GoTo 0
         End If
     End If
 
@@ -2099,45 +2040,6 @@ export default function Index() {
     navigator.clipboard.writeText(VBA_CODE);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
-  };
-
-  const downloadBas = () => {
-    // Конвертируем UTF-8 строку в Windows-1251 через TextEncoder не поддерживает 1251,
-    // поэтому используем escape/unescape трюк для создания бинарного Blob
-    const win1251 = new Uint8Array(
-      VBA_CODE.split("").map((ch) => {
-        const code = ch.charCodeAt(0);
-        // ASCII — без изменений
-        if (code < 128) return code;
-        // Таблица перекодировки Unicode → Windows-1251 для кириллицы
-        const map: Record<number, number> = {
-          0x0410: 0xc0, 0x0411: 0xc1, 0x0412: 0xc2, 0x0413: 0xc3, 0x0414: 0xc4,
-          0x0415: 0xc5, 0x0416: 0xc6, 0x0417: 0xc7, 0x0418: 0xc8, 0x0419: 0xc9,
-          0x041a: 0xca, 0x041b: 0xcb, 0x041c: 0xcc, 0x041d: 0xcd, 0x041e: 0xce,
-          0x041f: 0xcf, 0x0420: 0xd0, 0x0421: 0xd1, 0x0422: 0xd2, 0x0423: 0xd3,
-          0x0424: 0xd4, 0x0425: 0xd5, 0x0426: 0xd6, 0x0427: 0xd7, 0x0428: 0xd8,
-          0x0429: 0xd9, 0x042a: 0xda, 0x042b: 0xdb, 0x042c: 0xdc, 0x042d: 0xdd,
-          0x042e: 0xde, 0x042f: 0xdf,
-          0x0430: 0xe0, 0x0431: 0xe1, 0x0432: 0xe2, 0x0433: 0xe3, 0x0434: 0xe4,
-          0x0435: 0xe5, 0x0436: 0xe6, 0x0437: 0xe7, 0x0438: 0xe8, 0x0439: 0xe9,
-          0x043a: 0xea, 0x043b: 0xeb, 0x043c: 0xec, 0x043d: 0xed, 0x043e: 0xee,
-          0x043f: 0xef, 0x0440: 0xf0, 0x0441: 0xf1, 0x0442: 0xf2, 0x0443: 0xf3,
-          0x0444: 0xf4, 0x0445: 0xf5, 0x0446: 0xf6, 0x0447: 0xf7, 0x0448: 0xf8,
-          0x0449: 0xf9, 0x044a: 0xfa, 0x044b: 0xfb, 0x044c: 0xfc, 0x044d: 0xfd,
-          0x044e: 0xfe, 0x044f: 0xff,
-          0x0401: 0xa8, 0x0451: 0xb8, // Ё ё
-          0x00b0: 0xb0, // °
-        };
-        return map[code] ?? 0x3f; // неизвестный символ → '?'
-      })
-    );
-    const blob = new Blob([win1251], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "Autoclave_F0.bas";
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   return (
@@ -2645,14 +2547,6 @@ export default function Index() {
             >
               <Icon name={copied ? "Check" : "Copy"} size={12} />
               {copied ? "Скопировано!" : "Копировать код"}
-            </button>
-            <button
-              onClick={downloadBas}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-medium border bg-[#0a1420] border-[#22c55e]/30 text-[#22c55e] hover:bg-[#0d1e10] hover:border-[#22c55e]/50 transition-all"
-              title="Скачать .bas файл в кодировке Windows-1251 для импорта в VBA редактор"
-            >
-              <Icon name="Download" size={12} />
-              Скачать .bas
             </button>
           </div>
           <textarea
