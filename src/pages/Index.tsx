@@ -1788,7 +1788,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .MajorTickMark = xlTickMarkCross
         End With
 
-        Set pa   = .PlotArea
+        ' Уменьшаем область построения снизу — освобождаем ~45pt для двух шкал времени
+        Set pa = .PlotArea
+        On Error Resume Next
+        pa.Height = pa.Height - 30
+        On Error GoTo 0
+
         paILeft  = pa.InsideLeft
         paIWidth = pa.InsideWidth
         paITop   = pa.InsideTop
@@ -1803,10 +1808,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
 
-        ' Шкала 1 (серая, длительность цикла): сразу под линиями графика
-        grayYpos = paITop + paIHeight + 3
-        ' Шкала 2 (синяя, реальное время): на 16pt ниже серой — чтобы не накладывались
-        blueYpos = paITop + paIHeight + 19
+        ' Шкала 1 (синяя, реальное время): сразу под линиями графика
+        blueYpos = paITop + paIHeight + 3
+        ' Шкала 2 (серая, длительность цикла): на 18pt ниже синей — с зазором между ними
+        grayYpos = paITop + paIHeight + 21
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
@@ -1923,17 +1928,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         If heatMidRi < 1 Then heatMidRi = 1
 
-        ' --- Серия 1 (T среды, синяя): цифра "1" в зоне охлаждения (середина между rHoldEnd и rEnd) ---
-        ' Там F0 горизонтальна и синяя линия идёт вниз — не пересекаются
+        ' --- Серия 1 (T среды, синяя): цифра "1" в середине нагрева, выше линии ---
         On Error Resume Next
         Set sr1 = .SeriesCollection(1)
         ptCount1 = sr1.Points.Count
         If ptCount1 > 0 Then
-            If rHoldEnd > 0 And rEnd > rHoldEnd Then
-                lbl1Pt = (rHoldEnd - rStart) + CLng((rEnd - rHoldEnd) * 0.3)
-            Else
-                lbl1Pt = CLng(nRows * 0.75)
-            End If
+            lbl1Pt = heatMidRi
             If lbl1Pt < 1 Then lbl1Pt = 1
             If lbl1Pt > ptCount1 Then lbl1Pt = ptCount1
             sr1.HasDataLabels = False
@@ -2022,7 +2022,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .NumberFormat = "@" : .Characters.Text = "5"
                     .Font.Size = 18 : .Font.Bold = True
                     .Font.Color = RGB(130, 70, 20)
-                    .Position = xlLabelPositionAbove
+                    .Position = xlLabelPositionRight
                 End With
             End If
         End If
@@ -2039,6 +2039,22 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If coolMidRi > nRows Then coolMidRi = nRows
 
         On Error Resume Next
+        ' --- Цифра "1" справа (зона охлаждения) — всегда по левую сторону синей линии ---
+        Set sr1r = .SeriesCollection(1)
+        ptCnt1r = sr1r.Points.Count
+        If ptCnt1r > 0 Then
+            lbl1r = coolMidRi
+            If lbl1r > ptCnt1r Then lbl1r = ptCnt1r
+            Set pt1r = sr1r.Points(lbl1r)
+            pt1r.HasDataLabel = True
+            With pt1r.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@" : .Characters.Text = "1"
+                .Font.Size = 18 : .Font.Bold = True
+                .Font.Color = RGB(30, 80, 200)
+                .Position = xlLabelPositionLeft
+            End With
+        End If
         ' --- Цифра "2" справа (зона охлаждения) ---
         Set sr2r = .SeriesCollection(2)
         ptCnt2r = sr2r.Points.Count
