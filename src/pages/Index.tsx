@@ -845,13 +845,13 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         .Rows(4).RowHeight = 6
 
         ' ===== ТАБЛИЦА 1: основные данные (8 столбцов, умещается на А4) =====
-        Dim h1(1 To 8) As String
+        Dim h1(1 To 7) As String
         h1(1) = "Цикл" : h1(2) = "Начало" : h1(3) = "Конец"
         h1(4) = "Длительность" : h1(5) = "T макс. (C)"
-        h1(6) = "T мин. при стерил. (C)" : h1(7) = "F0 (мин)" : h1(8) = "Результат"
+        h1(6) = "F0 (мин)" : h1(7) = "Результат"
 
         Dim c As Integer
-        For c = 1 To 8
+        For c = 1 To 7
             .Cells(5, c).Value = h1(c)
             .Cells(5, c).Font.Bold = True
             .Cells(5, c).Font.Color = RGB(255, 255, 255)
@@ -1207,23 +1207,22 @@ P2Next:
             .Cells(reportRow, 3).Value = endDateStr
             .Cells(reportRow, 4).Value = durStr
             .Cells(reportRow, 5).Value = Round(tMax, 2)
-            .Cells(reportRow, 6).Value = IIf(tMin < 999, Round(tMin, 2), "—")
-            .Cells(reportRow, 7).Value = Round(f0Cycle, 4)
-            .Cells(reportRow, 8).Value = result
+            .Cells(reportRow, 6).Value = Round(f0Cycle, 4)
+            .Cells(reportRow, 7).Value = result
 
-            .Cells(reportRow, 7).NumberFormat = "0.0000"
+            .Cells(reportRow, 6).NumberFormat = "0.0000"
 
             If ci Mod 2 = 0 Then
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Interior.Color = RGB(240, 246, 252)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 6)).Interior.Color = RGB(240, 246, 252)
             Else
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Interior.Color = RGB(255, 255, 255)
+                .Range(.Cells(reportRow, 1), .Cells(reportRow, 6)).Interior.Color = RGB(255, 255, 255)
             End If
-            .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Font.Color = RGB(30, 30, 30)
+            .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Font.Color = RGB(30, 30, 30)
 
             ' Ячейка результата — цветной фон + контрастный шрифт
-            .Cells(reportRow, 8).Interior.Color = resultBgColor
-            .Cells(reportRow, 8).Font.Color = resultFontColor
-            .Cells(reportRow, 8).Font.Bold = True
+            .Cells(reportRow, 7).Interior.Color = resultBgColor
+            .Cells(reportRow, 7).Font.Color = resultFontColor
+            .Cells(reportRow, 7).Font.Bold = True
         End With
 
         ' Сохраняем для таблицы 2 (только циклы прошедшие фильтр 60 мин)
@@ -1255,14 +1254,14 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Cells(reportRow, 4).Value = ""
         .Cells(reportRow, 5).Value = "=MAX(E6:E" & lastDataRow & ")"
         .Cells(reportRow, 5).Font.Bold = True
-        .Cells(reportRow, 8).Value = "Всего циклов: " & totalCycles
-        .Cells(reportRow, 8).Font.Bold = True
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Interior.Color = RGB(220, 235, 248)
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Font.Color = RGB(20, 60, 100)
+        .Cells(reportRow, 7).Value = "Всего циклов: " & totalCycles
+        .Cells(reportRow, 7).Font.Bold = True
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Interior.Color = RGB(220, 235, 248)
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Font.Color = RGB(20, 60, 100)
         .Cells(reportRow, 1).Font.Color = RGB(0, 100, 180)
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Borders(xlEdgeTop).LineStyle = xlContinuous
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Borders(xlEdgeTop).Color = RGB(0, 100, 180)
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 8)).Borders(xlEdgeTop).Weight = xlMedium
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Borders(xlEdgeTop).LineStyle = xlContinuous
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Borders(xlEdgeTop).Color = RGB(0, 100, 180)
+        .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Borders(xlEdgeTop).Weight = xlMedium
     End With
 
     ' ===== ТАБЛИЦА 2: программа/примечания =====
@@ -1326,23 +1325,21 @@ Sub FormatReportSheet(wsReport As Worksheet)
         .Columns(3).ColumnWidth = 19   ' Конец
         .Columns(4).ColumnWidth = 12   ' Длительность
         .Columns(5).ColumnWidth = 11   ' T макс
-        .Columns(6).ColumnWidth = 20   ' T мин
-        .Columns(7).ColumnWidth = 11   ' F0
-        .Columns(8).ColumnWidth = 26   ' Результат
+        .Columns(6).ColumnWidth = 11   ' F0
+        .Columns(7).ColumnWidth = 28   ' Результат
         .Columns(1).HorizontalAlignment = xlCenter
         .Columns(4).HorizontalAlignment = xlCenter
         .Columns(5).HorizontalAlignment = xlCenter
         .Columns(6).HorizontalAlignment = xlCenter
-        .Columns(7).HorizontalAlignment = xlCenter
         ' Белый фон, чёрный шрифт
         .Cells.Interior.Color = RGB(255, 255, 255)
         .Cells.Font.Color = RGB(0, 0, 0)
         ' Заголовок
         .Cells(1, 1).Font.Color = RGB(0, 100, 180)
         .Cells(1, 1).Font.Size = 14
-        .Range("A1:H1").Merge
-        .Range("A2:H2").Merge
-        .Range("A3:H3").Merge
+        .Range("A1:G1").Merge
+        .Range("A2:G2").Merge
+        .Range("A3:G3").Merge
         .Rows(2).Font.Color = RGB(80, 80, 80)
         .Rows(3).Font.Color = RGB(80, 80, 80)
         ' Поля печати — узкие для А4
