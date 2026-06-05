@@ -1370,7 +1370,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
     Const CHART_W As Long = 820   ' ширина — до колонки N
-    Const CHART_H As Long = 506   ' высота: +16pt под вторую строку меток (реальное время)
+    Const CHART_H As Long = 520   ' высота: место под 2 строки меток оси X
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1623,6 +1623,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim rtLabel As String
     Dim xPos    As Double
     Dim tbRt    As Shape
+    Dim tvRaw   As Variant
 
     With cht
         .HasTitle = True
@@ -1693,6 +1694,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End With
 
         ' === Шкала реального времени суток — TextBox под осью X ===
+        ' Читаем время напрямую из столбца B (Excel-дробь hh:mm:ss)
         Set pa = .PlotArea
         paLeft = co.Left + pa.InsideLeft
         paW    = pa.InsideWidth
@@ -1704,35 +1706,49 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             stepPt = paW
         End If
 
-        rtTop  = paBot + 16
-        rtBoxH = 11
-        rtBoxW = stepPt * 0.9
-        If rtBoxW < 22 Then rtBoxW = 22
-        If rtBoxW > 60 Then rtBoxW = 60
+        ' Метки реального времени — 14pt ниже paBot (после стандартных меток длительности)
+        rtTop  = paBot + 14
+        rtBoxH = 12
+        rtBoxW = stepPt - 2
+        If rtBoxW < 28 Then rtBoxW = 28
+        If rtBoxW > 55 Then rtBoxW = 55
 
         For tki = 1 To nRows Step tickStep
-            rtSec2      = RowAbsSeconds(wsData, rStart + tki - 1)
-            rtTotalMin2 = CLng(Int(rtSec2 / 60))
-            rtHour      = CLng(Int(rtTotalMin2 / 60)) Mod 24
-            rtMin       = rtTotalMin2 Mod 60
-            rtLabel     = Format(rtHour, "00") & ":" & Format(rtMin, "00")
+            ' Берём время напрямую из столбца B — Excel хранит как дробь 0..1
+            tvRaw = wsData.Cells(rStart + tki - 1, 2).Value
+            If IsNumeric(tvRaw) Then
+                ' Дробь Excel: умножаем на 1440 минут в сутках
+                rtTotalMin2 = CLng(Int(CDbl(tvRaw) * 1440))
+                rtHour = CLng(Int(rtTotalMin2 / 60)) Mod 24
+                rtMin  = rtTotalMin2 Mod 60
+                rtLabel = Format(rtHour, "00") & ":" & Format(rtMin, "00")
+            ElseIf InStr(CStr(tvRaw), ":") > 0 Then
+                rtSec2 = RowAbsSeconds(wsData, rStart + tki - 1)
+                rtTotalMin2 = CLng(Int(rtSec2 / 60))
+                rtHour = CLng(Int(rtTotalMin2 / 60)) Mod 24
+                rtMin  = rtTotalMin2 Mod 60
+                rtLabel = Format(rtHour, "00") & ":" & Format(rtMin, "00")
+            Else
+                rtLabel = ""
+            End If
 
-            xPos = paLeft + (tki - 1) * (paW / (nRows - 1)) - rtBoxW / 2
-
-            Set tbRt = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, xPos, rtTop, rtBoxW, rtBoxH)
-            With tbRt
-                .Line.Visible = msoFalse
-                .Fill.Visible = msoFalse
-                With .TextFrame2.TextRange
-                    .Text = rtLabel
-                    .Font.Size = 6.5
-                    .ParagraphFormat.Alignment = msoAlignCenter
-                    .Font.Fill.ForeColor.RGB = RGB(0, 80, 160)
+            If rtLabel <> "" Then
+                xPos = paLeft + (tki - 1) * (paW / (nRows - 1)) - rtBoxW / 2
+                Set tbRt = ws.Shapes.AddTextbox( _
+                    msoTextOrientationHorizontal, xPos, rtTop, rtBoxW, rtBoxH)
+                With tbRt
+                    .Line.Visible = msoFalse
+                    .Fill.Visible = msoFalse
+                    With .TextFrame2.TextRange
+                        .Text = rtLabel
+                        .Font.Size = 7
+                        .ParagraphFormat.Alignment = msoAlignCenter
+                        .Font.Fill.ForeColor.RGB = RGB(0, 80, 160)
+                    End With
+                    .TextFrame.HorizontalAlignment = xlHAlignCenter
+                    .TextFrame.VerticalAlignment = xlVAlignTop
                 End With
-                .TextFrame.HorizontalAlignment = xlHAlignCenter
-                .TextFrame.VerticalAlignment = xlVAlignTop
-            End With
+            End If
         Next tki
 
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
