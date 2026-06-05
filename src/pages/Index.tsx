@@ -1370,7 +1370,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
     Const CHART_W As Long = 790   ' ширина графика (pt)
-    Const CHART_H As Long = 490   ' высота графика (pt) — при FitToPagesWide=1 один график = одна страница A4
+    Const CHART_H As Long = 510   ' высота графика (pt) — увеличена на 20pt для двух шкал времени внизу
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1486,27 +1486,31 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) > pressMaxVal Then pressMaxVal = CDbl(arrPressure(ri))
     Next ri
 
-    ' Проход 1б: обрезаем давление — после начала устойчивого падения ставим Empty
-    ' Это убирает некрасивый хвост линии вниз в конце цикла
+    ' Проход 1б: обрезаем давление — ищем резкий сброс (падение >50% за 10 точек подряд)
+    ' После такого сброса — Empty (линия обрывается, хвост не рисуется)
     Dim pressMax2 As Double : pressMax2 = 0
+    Dim pressDropRi2 As Long : pressDropRi2 = 0
     For ri = 1 To nRows
         If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) > pressMax2 Then
             pressMax2 = CDbl(arrPressure(ri))
         End If
     Next ri
     If pressMax2 > 0 Then
-        ' Ищем с конца: первая точка где давление ещё >= 40% от максимума
-        Dim pressStopRi As Long : pressStopRi = nRows
-        For ri = nRows To 1 Step -1
-            If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) >= pressMax2 * 0.4 Then
-                pressStopRi = ri
+        ' Скользящий поиск: ищем точку где за следующие 10 точек давление упало > 50%
+        Dim wnd As Long : wnd = 10
+        For ri = 1 To nRows - wnd
+            Dim pCur As Double : pCur = IIf(IsNumeric(arrPressure(ri)), CDbl(arrPressure(ri)), 0)
+            Dim pFwd As Double : pFwd = IIf(IsNumeric(arrPressure(ri + wnd)), CDbl(arrPressure(ri + wnd)), 0)
+            If pCur > pressMax2 * 0.1 And pFwd < pCur * 0.5 Then
+                pressDropRi2 = ri + 1
                 Exit For
             End If
         Next ri
-        ' После этой точки — Empty (линия не рисуется)
-        For ri = pressStopRi + 1 To nRows
-            arrPressure(ri) = Empty
-        Next ri
+        If pressDropRi2 > 0 Then
+            For ri = pressDropRi2 To nRows
+                arrPressure(ri) = Empty
+            Next ri
+        End If
     End If
 
     ' Проход 2: находим первую точку где F0 реально начал расти (> 0)
@@ -1673,9 +1677,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .ChartTitle.Font.Bold = True
         .ChartTitle.Font.Color = RGB(20, 20, 20)
 
-        .PlotArea.Interior.Color = RGB(255, 255, 255)
-        .PlotArea.Border.LineStyle = xlContinuous
-        .PlotArea.Border.Color = RGB(180, 200, 220)
+        ' Явно ограничиваем PlotArea снизу — оставляем 50pt для двух шкал времени (серая + синяя)
+        With .PlotArea
+            .Interior.Color = RGB(255, 255, 255)
+            .Border.LineStyle = xlContinuous
+            .Border.Color = RGB(180, 200, 220)
+            .Height = CHART_H - 80   ' 80pt снизу = место для оси X + серая шкала + синяя шкала
+        End With
         .ChartArea.Interior.Color = RGB(250, 252, 255)
         .ChartArea.Border.Color = RGB(180, 200, 220)
 
@@ -1982,7 +1990,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If coolMidRi > nRows Then coolMidRi = nRows
 
         On Error Resume Next
-        ' --- Цифра "1" справа ---
+        ' --- Цифра "1" справа — слева от точки, выше линии ---
         Dim sr1r As Series : Set sr1r = .SeriesCollection(1)
         Dim ptCnt1r As Long : ptCnt1r = sr1r.Points.Count
         If ptCnt1r > 0 Then
@@ -1995,7 +2003,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .NumberFormat = "@" : .Characters.Text = "1"
                 .Font.Size = 18 : .Font.Bold = True
                 .Font.Color = RGB(30, 80, 200)
-                .Position = xlLabelPositionAbove
+                .Position = xlLabelPositionLeft
             End With
         End If
         ' --- Цифра "2" справа ---
