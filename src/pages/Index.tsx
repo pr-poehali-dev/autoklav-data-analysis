@@ -1607,7 +1607,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     With cht
         .HasTitle = True
-        .ChartTitle.Text = "Цикл " & cycleIdx
+        .ChartTitle.Text = "Цикл " & cycleIdx & _
+            "  [стр." & rStart & "-" & rEnd & _
+            "  дата:" & wsData.Cells(rStart, 1).Value & _
+            "  вр:" & wsData.Cells(rStart, 2).Value & "]"
         .ChartTitle.Font.Size = 11
         .ChartTitle.Font.Bold = True
         .ChartTitle.Font.Color = RGB(20, 20, 20)
@@ -1807,6 +1810,13 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     ws.Cells(1, 1).Font.Size = 12
     ws.Cells(1, 1).Font.Bold = True
     ws.Cells(1, 1).Font.Color = RGB(0, 80, 160)
+    ' Диагностика: показываем сколько всего строк данных
+    ws.Cells(2, 1).Value = "[Диагностика] Всего строк данных (lastRow): " & lastRow & _
+        "  |  Дата строки 2: " & wsData.Cells(2, 1).Value & _
+        "  Время строки 2: " & wsData.Cells(2, 2).Value & _
+        "  Давление строки 2: " & wsData.Cells(2, 6).Value
+    ws.Cells(2, 1).Font.Size = 9
+    ws.Cells(2, 1).Font.Color = RGB(150, 100, 0)
 
     ' Та же логика обнаружения циклов что и в DetectCyclesAndCalculateF0
     ' Цикл активен: давление >= 6.0 (вода не учитывается)
