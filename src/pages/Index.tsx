@@ -1780,17 +1780,15 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If ckW > 52 Then ckW = 52
 
         ' Шкала 1 (серая, длительность цикла): сразу под линиями графика
-        Dim grayYpos As Double : grayYpos = paITop + paIHeight + 2
+        grayYpos = paITop + paIHeight + 2
         ' Шкала 2 (синяя, реальное время): на 13pt ниже серой
-        Dim blueYpos As Double : blueYpos = paITop + paIHeight + 15
+        blueYpos = paITop + paIHeight + 15
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
-            Dim xPt As Double
             xPt = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
 
             ' --- Серая метка: длительность от начала цикла (00:00, 00:11, ...) ---
-            Dim grayLabel As String
             grayLabel = timeLabels(ckTki)
             Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPt, grayYpos, ckW, 12)
             With ckTb
