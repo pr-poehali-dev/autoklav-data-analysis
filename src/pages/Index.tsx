@@ -2442,6 +2442,8 @@ export default function Index() {
       0x0448:0xF8,0x0449:0xF9,0x044A:0xFA,0x044B:0xFB,0x044C:0xFC,0x044D:0xFD,
       0x044E:0xFE,0x044F:0xFF,
       0x0401:0xA8,0x0451:0xB8,0x2014:0x97,0x2013:0x96,0x00AB:0xAB,0x00BB:0xBB,
+      0x00B0:0xB0,0x00B1:0xB1,0x00B2:0xB2,0x00B3:0xB3,0x00B5:0xB5,0x00B7:0xB7,
+      0x00A0:0xA0,0x00A9:0xA9,0x00AE:0xAE,0x2116:0xB9,0x20AC:0x88,
     };
     const bytes = new Uint8Array(VBA_CODE.length * 2);
     let idx = 0;
@@ -2970,6 +2972,7 @@ export default function Index() {
               </button>
               <button
                 onClick={copyCode}
+                title="⚠️ Только для просмотра — для вставки в Excel используйте .bas файл"
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-medium transition-all border ${
                   copied
                     ? "bg-[#061a0e] border-[#22c55e]/40 text-[#22c55e]"
@@ -2980,6 +2983,10 @@ export default function Index() {
                 {copied ? "Скопировано!" : "Копировать код"}
               </button>
             </div>
+          </div>
+          <div className="px-5 py-1.5 bg-[#0a1410] border-b border-[#1e3050] text-[10px] text-[#f59e0b] flex items-center gap-1.5">
+            <Icon name="AlertTriangle" size={11} />
+            Для вставки в Excel — только через «Скачать .bas», затем File → Import. Копирование текста даёт ???? из-за кодировки.
           </div>
           <textarea
             readOnly
