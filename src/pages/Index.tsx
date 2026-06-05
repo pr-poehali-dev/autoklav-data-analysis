@@ -43,8 +43,8 @@ Sub Autoclave_ProcessCSV()
     ' Извлекаем имя файла без пути
     Dim csvFileName As String
     Dim csvFolder As String
-    csvFileName = Mid(filePath, InStrRev(filePath, "\\") + 1)
-    csvFolder   = Left(filePath, InStrRev(filePath, "\\"))
+    csvFileName = Mid(filePath, InStrRev(filePath, Chr(92)) + 1)
+    csvFolder   = Left(filePath, InStrRev(filePath, Chr(92)))
 
     ' ----------------------------------------------------------------
     ' Импортируем основной файл
@@ -140,7 +140,7 @@ Sub Autoclave_ProcessCSV()
     If prevFilePath <> "" Then
         Call PrependPreviousCSV(wb, wsData, prevFilePath)
         Dim prevName As String
-        prevName = Mid(prevFilePath, InStrRev(prevFilePath, "\\") + 1)
+        prevName = Mid(prevFilePath, InStrRev(prevFilePath, Chr(92)) + 1)
         csvFileName = prevName & " + " & csvFileName
     End If
 
@@ -150,7 +150,7 @@ Sub Autoclave_ProcessCSV()
     If nextFilePath <> "" Then
         Call AppendNextCSV(wb, wsData, nextFilePath)
         Dim nextName As String
-        nextName = Mid(nextFilePath, InStrRev(nextFilePath, "\\") + 1)
+        nextName = Mid(nextFilePath, InStrRev(nextFilePath, Chr(92)) + 1)
         csvFileName = csvFileName & " + " & nextName
     End If
 
@@ -1798,13 +1798,25 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
-    For Each ws In wb.Sheets
-        If ws.Name = "График" Then ws.Delete
-    Next ws
+    Dim wsOld As Worksheet
+    For Each wsOld In wb.Sheets
+        On Error Resume Next
+        If wsOld.Name = "График" Or wsOld.Name = Chr(1043) & Chr(1088) & Chr(1072) & Chr(1092) & Chr(1080) & Chr(1082) Then
+            wsOld.Unprotect
+            wsOld.Delete
+        End If
+        On Error GoTo 0
+    Next wsOld
     Application.DisplayAlerts = True
 
     Set ws = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+    On Error Resume Next
     ws.Name = "График"
+    If Err.Number <> 0 Then
+        Err.Clear
+        ws.Name = "График_" & Format(Now(), "hhmmss")
+    End If
+    On Error GoTo 0
     ws.Cells.Interior.Color = RGB(245, 248, 252)
 
     ' Заголовок листа
