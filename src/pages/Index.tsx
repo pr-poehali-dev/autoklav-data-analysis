@@ -1989,17 +1989,27 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ' Текстовый блок с временем фаз — под легендой справа
         ' Показывает: Нагрев / Удержание / Охлаждение по T среды
         If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
+            ' Общее время цикла
+            Dim totalCycleSec As Double
+            totalCycleSec = phaseHeatSec + phaseHoldSec + phaseCoolSec
+            Dim totalStr As String : totalStr = FormatMinSec(totalCycleSec)
+
+            ' Строим текст — Остывание только если > 0
             Dim phaseText As String
-            phaseText = "Нагрев:       " & heatStr & Chr(10) & _
-                        "Удержание: " & holdStr & Chr(10) & _
-                        "Охлаждение: " & coolStr
+            phaseText = "Нагрев:         " & heatStr & Chr(10) & _
+                        "Удержание:   " & holdStr & Chr(10)
+            If phaseCoolSec > 0 Then
+                phaseText = phaseText & "Остывание:   " & coolStr & Chr(10)
+            End If
+            phaseText = phaseText & Chr(10) & _
+                        "Общее время: " & totalStr
 
             ' Размещаем TextBox правее области построения (рядом с легендой)
-            Dim tbLeft As Double : tbLeft = co.Left + co.Width - 145
-            Dim tbTop  As Double : tbTop  = co.Top + co.Height - 75
+            Dim tbLeft As Double : tbLeft = co.Left + co.Width - 155
+            Dim tbTop  As Double : tbTop  = co.Top + co.Height - 90
             Dim tb As Shape
             Set tb = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, tbLeft, tbTop, 140, 65)
+                msoTextOrientationHorizontal, tbLeft, tbTop, 150, 80)
             With tb
                 .Line.Visible = msoTrue
                 .Line.ForeColor.RGB = RGB(200, 200, 200)
@@ -2011,17 +2021,28 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .Font.Bold = False
                     .Font.Fill.ForeColor.RGB = RGB(40, 40, 40)
                     ' Нагрев — синий
-                    .Characters(1, 8).Font.Fill.ForeColor.RGB = RGB(30, 80, 200)
-                    .Characters(1, 8).Font.Bold = True
+                    .Characters(1, 6).Font.Fill.ForeColor.RGB = RGB(30, 80, 200)
+                    .Characters(1, 6).Font.Bold = True
                     ' Удержание — тёмно-красный
-                    Dim holdStart2 As Integer : holdStart2 = Len("Нагрев:       " & heatStr & Chr(10)) + 1
-                    .Characters(holdStart2, 10).Font.Fill.ForeColor.RGB = RGB(180, 40, 40)
-                    .Characters(holdStart2, 10).Font.Bold = True
-                    ' Охлаждение — синий
-                    Dim coolStart2 As Integer
-                    coolStart2 = holdStart2 + Len("Удержание: " & holdStr & Chr(10))
-                    .Characters(coolStart2, 11).Font.Fill.ForeColor.RGB = RGB(30, 80, 200)
-                    .Characters(coolStart2, 11).Font.Bold = True
+                    Dim holdStart2 As Integer : holdStart2 = Len("Нагрев:         " & heatStr & Chr(10)) + 1
+                    .Characters(holdStart2, 9).Font.Fill.ForeColor.RGB = RGB(180, 40, 40)
+                    .Characters(holdStart2, 9).Font.Bold = True
+                    ' Остывание — зелёный (если есть)
+                    If phaseCoolSec > 0 Then
+                        Dim coolStart2 As Integer
+                        coolStart2 = holdStart2 + Len("Удержание:   " & holdStr & Chr(10))
+                        .Characters(coolStart2, 9).Font.Fill.ForeColor.RGB = RGB(30, 140, 30)
+                        .Characters(coolStart2, 9).Font.Bold = True
+                    End If
+                    ' Общее время — жирный тёмный
+                    Dim totalStart As Integer
+                    If phaseCoolSec > 0 Then
+                        totalStart = holdStart2 + Len("Удержание:   " & holdStr & Chr(10)) + Len("Остывание:   " & coolStr & Chr(10)) + 2
+                    Else
+                        totalStart = holdStart2 + Len("Удержание:   " & holdStr & Chr(10)) + 2
+                    End If
+                    .Characters(totalStart, 12).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
+                    .Characters(totalStart, 12).Font.Bold = True
                 End With
                 .TextFrame.AutoSize = True
             End With
