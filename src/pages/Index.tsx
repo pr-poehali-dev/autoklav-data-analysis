@@ -1370,7 +1370,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
     Const CHART_W As Long = 820   ' ширина — до колонки N
-    Const CHART_H As Long = 490   ' высота ~17 см — ровно один A4
+    Const CHART_H As Long = 506   ' высота: +16pt под вторую строку меток (реальное время)
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1693,11 +1693,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             stepPt = paW
         End If
 
-        ' Высота строки реального времени — между осью X и нижним краем ChartArea
-        Dim rtTop As Double  : rtTop  = paBot + 2   ' чуть ниже оси
-        Dim rtH   As Double  : rtH    = 12
+        ' Высота строки реального времени — НИЖЕ стандартных меток оси X (длительность)
+        ' Стандартные метки оси занимают ~14pt ниже paBot → опускаемся на 16pt
+        Dim rtTop As Double  : rtTop  = paBot + 16
+        Dim rtH   As Double  : rtH    = 11
         Dim rtW   As Double  : rtW    = stepPt * 0.9
-        If rtW < 18 Then rtW = 18
+        If rtW < 22 Then rtW = 22
         If rtW > 60 Then rtW = 60
 
         ' Рисуем метки реального времени по каждому tickStep-му индексу
