@@ -2174,7 +2174,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
             ' Позиция внутри cht: справа (легенда ~155pt шириной), под легендой
             ctLeft = 635
-            ctTop  = 220
+            ctTop  = 360
 
             ' Рамка — фон
             Set tb = cht.Shapes.AddTextbox( _
