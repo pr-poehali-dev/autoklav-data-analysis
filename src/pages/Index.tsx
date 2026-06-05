@@ -2120,6 +2120,46 @@ export default function Index() {
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const downloadBas = () => {
+    // Кодируем в Windows-1251 — иначе кириллица в VBA редакторе Excel становится ????????
+    const win1251 = new TextEncoder();
+    // Таблица перекодировки Unicode → Windows-1251
+    const charMap: Record<number, number> = {
+      0x0410:0xC0,0x0411:0xC1,0x0412:0xC2,0x0413:0xC3,0x0414:0xC4,0x0415:0xC5,
+      0x0416:0xC6,0x0417:0xC7,0x0418:0xC8,0x0419:0xC9,0x041A:0xCA,0x041B:0xCB,
+      0x041C:0xCC,0x041D:0xCD,0x041E:0xCE,0x041F:0xCF,0x0420:0xD0,0x0421:0xD1,
+      0x0422:0xD2,0x0423:0xD3,0x0424:0xD4,0x0425:0xD5,0x0426:0xD6,0x0427:0xD7,
+      0x0428:0xD8,0x0429:0xD9,0x042A:0xDA,0x042B:0xDB,0x042C:0xDC,0x042D:0xDD,
+      0x042E:0xDE,0x042F:0xDF,
+      0x0430:0xE0,0x0431:0xE1,0x0432:0xE2,0x0433:0xE3,0x0434:0xE4,0x0435:0xE5,
+      0x0436:0xE6,0x0437:0xE7,0x0438:0xE8,0x0439:0xE9,0x043A:0xEA,0x043B:0xEB,
+      0x043C:0xEC,0x043D:0xED,0x043E:0xEE,0x043F:0xEF,0x0440:0xF0,0x0441:0xF1,
+      0x0442:0xF2,0x0443:0xF3,0x0444:0xF4,0x0445:0xF5,0x0446:0xF6,0x0447:0xF7,
+      0x0448:0xF8,0x0449:0xF9,0x044A:0xFA,0x044B:0xFB,0x044C:0xFC,0x044D:0xFD,
+      0x044E:0xFE,0x044F:0xFF,
+      0x0401:0xA8,0x0451:0xB8,0x2014:0x97,0x2013:0x96,0x00AB:0xAB,0x00BB:0xBB,
+    };
+    const bytes = new Uint8Array(VBA_CODE.length * 2);
+    let idx = 0;
+    for (let i = 0; i < VBA_CODE.length; i++) {
+      const cp = VBA_CODE.charCodeAt(i);
+      if (cp < 0x80) {
+        bytes[idx++] = cp;
+      } else if (charMap[cp] !== undefined) {
+        bytes[idx++] = charMap[cp];
+      } else {
+        bytes[idx++] = 0x3F; // '?' для неизвестных символов
+      }
+    }
+    const blob = new Blob([bytes.subarray(0, idx)], { type: "text/plain;charset=windows-1251" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "AutoclavF0_Module1.bas";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-[#060d16] text-[#b0c4d4] font-['IBM_Plex_Sans',sans-serif]">
       {/* Header */}
@@ -2615,17 +2655,27 @@ export default function Index() {
                 Excel VBA
               </span>
             </div>
-            <button
-              onClick={copyCode}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-medium transition-all border ${
-                copied
-                  ? "bg-[#061a0e] border-[#22c55e]/40 text-[#22c55e]"
-                  : "bg-[#0a1828] border-[#0ab4dc]/25 text-[#0ab4dc] hover:bg-[#0c1e34] hover:border-[#0ab4dc]/40"
-              }`}
-            >
-              <Icon name={copied ? "Check" : "Copy"} size={12} />
-              {copied ? "Скопировано!" : "Копировать код"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={downloadBas}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-medium transition-all border bg-[#0a1828] border-[#22c55e]/30 text-[#22c55e] hover:bg-[#061a0e] hover:border-[#22c55e]/50"
+                title="Скачать .bas файл в кодировке Windows-1251 — для импорта в редактор VBA"
+              >
+                <Icon name="Download" size={12} />
+                Скачать .bas
+              </button>
+              <button
+                onClick={copyCode}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-medium transition-all border ${
+                  copied
+                    ? "bg-[#061a0e] border-[#22c55e]/40 text-[#22c55e]"
+                    : "bg-[#0a1828] border-[#0ab4dc]/25 text-[#0ab4dc] hover:bg-[#0c1e34] hover:border-[#0ab4dc]/40"
+                }`}
+              >
+                <Icon name={copied ? "Check" : "Copy"} size={12} />
+                {copied ? "Скопировано!" : "Копировать код"}
+              </button>
+            </div>
           </div>
           <textarea
             readOnly
