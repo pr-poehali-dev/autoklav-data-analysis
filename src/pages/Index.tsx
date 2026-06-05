@@ -1002,9 +1002,9 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     ' ================================================================
     Dim cycleCount As Integer
     cycleCount = 0
-    ReDim cycleStarts(1 To 500) As Long
-    ReDim cycleEnds_(1 To 500) As Long
-    ReDim cycleTref(1 To 500) As Double
+    Dim cycleStarts(1 To 500) As Long
+    Dim cycleEnds_(1 To 500) As Long
+    Dim cycleTref(1 To 500) As Double
 
     Dim inCyc As Boolean
     Dim cyStart As Long
