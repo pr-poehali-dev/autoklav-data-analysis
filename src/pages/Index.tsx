@@ -1677,13 +1677,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .ChartTitle.Font.Bold = True
         .ChartTitle.Font.Color = RGB(20, 20, 20)
 
-        ' Явно ограничиваем PlotArea снизу — оставляем 50pt для двух шкал времени (серая + синяя)
-        With .PlotArea
-            .Interior.Color = RGB(255, 255, 255)
-            .Border.LineStyle = xlContinuous
-            .Border.Color = RGB(180, 200, 220)
-            .Height = CHART_H - 80   ' 80pt снизу = место для оси X + серая шкала + синяя шкала
-        End With
+        .PlotArea.Interior.Color = RGB(255, 255, 255)
+        .PlotArea.Border.LineStyle = xlContinuous
+        .PlotArea.Border.Color = RGB(180, 200, 220)
+        .PlotArea.Height = 430   ' 510 - 80pt снизу = место для оси X + серая шкала + синяя шкала
         .ChartArea.Interior.Color = RGB(250, 252, 255)
         .ChartArea.Border.Color = RGB(180, 200, 220)
 
