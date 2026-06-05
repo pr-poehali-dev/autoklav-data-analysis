@@ -1460,27 +1460,33 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' arrF0 — Variant чтобы хранить Empty (разрыв линии до начала накопления)
     Dim arrEnv() As Double, arrProd() As Double, arrTref() As Double
     Dim arrF0() As Variant
+    Dim arrPressure() As Double
     ReDim arrEnv(1 To nRows)
     ReDim arrProd(1 To nRows)
     ReDim arrF0(1 To nRows)
     ReDim arrTref(1 To nRows)
+    ReDim arrPressure(1 To nRows)
 
     Dim f0MaxVal As Double : f0MaxVal = 0
+    Dim pressMaxVal As Double : pressMaxVal = 0
 
-    ' Проход 1: заполняем env/prod/tref, собираем сырые F0 во временный массив
+    ' Проход 1: заполняем env/prod/tref/pressure, собираем сырые F0 во временный массив
     Dim arrF0raw() As Double
     ReDim arrF0raw(1 To nRows)
     For ri = 1 To nRows
         Dim rowIdx As Long : rowIdx = rStart + ri - 1
-        Dim vEnv As Variant, vProd As Variant, vF0 As Variant
-        vEnv  = wsData.Cells(rowIdx, 4).Value   ' D — темп.среды
-        vProd = wsData.Cells(rowIdx, 5).Value   ' E — темп.продукта
-        vF0   = wsData.Cells(rowIdx, 18).Value  ' R — F0 (накопленный)
-        arrEnv(ri)  = IIf(IsNumeric(vEnv), CDbl(vEnv), 0)
-        arrProd(ri) = IIf(IsNumeric(vProd), CDbl(vProd), 0)
-        arrTref(ri) = tRefC
-        arrF0raw(ri) = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        Dim vEnv As Variant, vProd As Variant, vF0 As Variant, vPress As Variant
+        vEnv   = wsData.Cells(rowIdx, 4).Value   ' D — темп.среды
+        vProd  = wsData.Cells(rowIdx, 5).Value   ' E — темп.продукта
+        vF0    = wsData.Cells(rowIdx, 18).Value  ' R — F0 (накопленный)
+        vPress = wsData.Cells(rowIdx, 6).Value   ' F — давление
+        arrEnv(ri)      = IIf(IsNumeric(vEnv), CDbl(vEnv), 0)
+        arrProd(ri)     = IIf(IsNumeric(vProd), CDbl(vProd), 0)
+        arrTref(ri)     = tRefC
+        arrF0raw(ri)    = IIf(IsNumeric(vF0), CDbl(vF0), 0)
+        arrPressure(ri) = IIf(IsNumeric(vPress), CDbl(vPress), 0)
         If arrF0raw(ri) > f0MaxVal Then f0MaxVal = arrF0raw(ri)
+        If arrPressure(ri) > pressMaxVal Then pressMaxVal = arrPressure(ri)
     Next ri
 
     ' Проход 2: находим первую точку где F0 реально начал расти (> 0)
@@ -1608,6 +1614,18 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s4.Smooth = True
     s4.AxisGroup = xlPrimary
 
+    ' --- Серия 5: Давление — коричневая, вторичная ось Y (бар) ---
+    Dim s5 As Series
+    Set s5 = cht.SeriesCollection.NewSeries
+    s5.Name = "5. Давление (бар)"
+    s5.Values = arrPressure
+    s5.XValues = timeLabels
+    s5.Format.Line.ForeColor.RGB = RGB(130, 70, 20)    ' тёмно-коричневый
+    s5.Format.Line.Weight = 1.5
+    s5.MarkerStyle = xlMarkerStyleNone
+    s5.Smooth = False
+    s5.AxisGroup = xlSecondary   ' вторичная ось Y (правая)
+
     Dim tickStep  As Long
     Dim pa        As PlotArea
     Dim paILeft   As Double
@@ -1663,10 +1681,29 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .TickLabels.Font.Size = 9
         End With
 
-        ' Правая ось — скрыта (F0 теперь на левой оси как горизонтальная линия внизу)
+        ' Правая ось — давление (бар), коричневая
         On Error Resume Next
-        .HasAxis(xlValue, xlSecondary) = False
+        .HasAxis(xlValue, xlSecondary) = True
         On Error GoTo 0
+        With .Axes(xlValue, xlSecondary)
+            .HasTitle = True
+            .AxisTitle.Text = "Давление (бар)"
+            .AxisTitle.Font.Size = 8
+            .AxisTitle.Font.Color = RGB(130, 70, 20)
+            Dim pressAxisMax As Double
+            If pressMaxVal > 0 Then
+                pressAxisMax = Application.WorksheetFunction.RoundUp(pressMaxVal * 1.15, 0)
+                If pressAxisMax < 4 Then pressAxisMax = 4
+            Else
+                pressAxisMax = 6
+            End If
+            .MinimumScale = 0
+            .MaximumScale = pressAxisMax
+            .MajorUnit = Application.WorksheetFunction.RoundUp(pressAxisMax / 6, 0)
+            .HasMajorGridlines = False
+            .TickLabels.Font.Color = RGB(130, 70, 20)
+            .TickLabels.Font.Size = 9
+        End With
 
         ' Ось X — время HH:MM + вертикальная сетка
         If nRows > 3000 Then
@@ -1799,66 +1836,118 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         .Legend.Font.Size = 8
         .Legend.Position = xlLegendPositionRight
 
-        ' Метки-номера на ПЕРВОЙ точке каждой серии (слева на линии)
-        Dim labelColors(1 To 4) As Long
-        labelColors(1) = RGB(30, 80, 200)    ' синий — T среды
-        labelColors(2) = RGB(210, 30, 30)    ' красный — T продукта
-        labelColors(3) = RGB(180, 140, 0)    ' тёмно-жёлтый — T задан.
-        labelColors(4) = RGB(100, 200, 80)   ' светло-зелёный — F0
+        ' ===== Метки-цифры на линиях =====
+        ' Серии 1, 2, 5 — цифра в середине фазы нагрева, на разных высотах (Above/Below)
+        ' Серия 4 (F0) — цифра "4" у начала линии F0 + подпись "F0=X.X мин" на плато
+        ' Серия 3 — пунктир, метка не нужна (видно по цвету)
 
-        Dim si As Integer
-        For si = 1 To 4
-            On Error Resume Next
-            If si <= .SeriesCollection.Count Then
-                Dim srLbl As Series
-                Set srLbl = .SeriesCollection(si)
-                Dim ptCount As Long
-                ptCount = srLbl.Points.Count
-                If ptCount > 0 Then
-                    srLbl.HasDataLabels = False
+        ' Середина нагрева (индекс точки) — rHoldStart относительно rStart
+        Dim heatMidRi As Long
+        If rHoldStart > rStart Then
+            heatMidRi = CLng((rHoldStart - rStart) / 2)
+        Else
+            heatMidRi = CLng(nRows / 4)
+        End If
+        If heatMidRi < 1 Then heatMidRi = 1
 
-                    If si = 4 Then
-                        ' Серия F0: подпись над серединой плато (где кривая выровнялась)
-                        ' f0PlatoRi — первая точка плато; берём середину плато→конец
-                        Dim f0MidPt As Long
-                        f0MidPt = CLng((f0PlatoRi + f0LastRi) / 2)
-                        If f0MidPt < 1 Then f0MidPt = 1
-                        If f0MidPt > ptCount Then f0MidPt = ptCount
-                        Dim platoPoint As Point
-                        Set platoPoint = srLbl.Points(f0MidPt)
-                        platoPoint.HasDataLabel = True
-                        With platoPoint.DataLabel
-                            .ShowValue = False
-                            .ShowSeriesName = False
-                            .ShowLegendKey = False
-                            .NumberFormat = "@"
-                            .Characters.Text = "F0=" & Format(f0MaxVal, "0.0") & " мин"
-                            .Font.Size = 8
-                            .Font.Bold = True
-                            .Font.Color = RGB(40, 140, 40)
-                            .Position = xlLabelPositionAbove
-                        End With
-                    Else
-                        ' Серии 1-3: цифра на ПЕРВОЙ видимой точке (слева)
-                        Dim firstPt As Point
-                        Set firstPt = srLbl.Points(1)
-                        firstPt.HasDataLabel = True
-                        With firstPt.DataLabel
-                            .ShowValue = False
-                            .ShowSeriesName = False
-                            .ShowLegendKey = False
-                            .NumberFormat = "@"
-                            .Characters.Text = CStr(si)
-                            .Font.Size = 8
-                            .Font.Bold = True
-                            .Font.Color = labelColors(si)
-                            .Position = xlLabelPositionLeft
-                        End With
-                    End If
-                End If
+        ' --- Серия 1 (T среды, синяя): цифра "1" в середине нагрева, выше линии ---
+        On Error Resume Next
+        Dim sr1 As Series : Set sr1 = .SeriesCollection(1)
+        Dim ptCount1 As Long : ptCount1 = sr1.Points.Count
+        If ptCount1 > 0 Then
+            Dim lbl1Pt As Long : lbl1Pt = heatMidRi
+            If lbl1Pt > ptCount1 Then lbl1Pt = ptCount1
+            sr1.HasDataLabels = False
+            Dim pt1 As Point : Set pt1 = sr1.Points(lbl1Pt)
+            pt1.HasDataLabel = True
+            With pt1.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@" : .Characters.Text = "1"
+                .Font.Size = 9 : .Font.Bold = True
+                .Font.Color = RGB(30, 80, 200)
+                .Position = xlLabelPositionAbove
+            End With
+        End If
+        On Error GoTo 0
+
+        ' --- Серия 2 (T продукта, красная): цифра "2" чуть правее середины нагрева, ниже линии ---
+        On Error Resume Next
+        Dim sr2 As Series : Set sr2 = .SeriesCollection(2)
+        Dim ptCount2 As Long : ptCount2 = sr2.Points.Count
+        If ptCount2 > 0 Then
+            Dim lbl2Pt As Long : lbl2Pt = CLng(heatMidRi * 1.3)  ' чуть правее серии 1
+            If lbl2Pt < 1 Then lbl2Pt = 1
+            If lbl2Pt > ptCount2 Then lbl2Pt = ptCount2
+            sr2.HasDataLabels = False
+            Dim pt2 As Point : Set pt2 = sr2.Points(lbl2Pt)
+            pt2.HasDataLabel = True
+            With pt2.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@" : .Characters.Text = "2"
+                .Font.Size = 9 : .Font.Bold = True
+                .Font.Color = RGB(210, 30, 30)
+                .Position = xlLabelPositionBelow
+            End With
+        End If
+        On Error GoTo 0
+
+        ' --- Серия 4 (F0, зелёная): цифра "4" у первой точки F0 + "F0=X.X мин" на плато ---
+        On Error Resume Next
+        Dim sr4 As Series : Set sr4 = .SeriesCollection(4)
+        Dim ptCount4 As Long : ptCount4 = sr4.Points.Count
+        If ptCount4 > 0 Then
+            sr4.HasDataLabels = False
+            ' Цифра "4" — у первой ненулевой точки F0
+            If f0StartRi >= 1 And f0StartRi <= ptCount4 Then
+                Dim pt4start As Point : Set pt4start = sr4.Points(f0StartRi)
+                pt4start.HasDataLabel = True
+                With pt4start.DataLabel
+                    .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                    .NumberFormat = "@" : .Characters.Text = "4"
+                    .Font.Size = 9 : .Font.Bold = True
+                    .Font.Color = RGB(40, 140, 40)
+                    .Position = xlLabelPositionAbove
+                End With
             End If
-            On Error GoTo 0
-        Next si
+            ' "F0=X.X мин" — на середине плато
+            Dim f0MidPt As Long : f0MidPt = CLng((f0PlatoRi + f0LastRi) / 2)
+            If f0MidPt < 1 Then f0MidPt = 1
+            If f0MidPt > ptCount4 Then f0MidPt = ptCount4
+            Dim platoPoint As Point : Set platoPoint = sr4.Points(f0MidPt)
+            platoPoint.HasDataLabel = True
+            With platoPoint.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@"
+                .Characters.Text = "F0=" & Format(f0MaxVal, "0.0") & " мин"
+                .Font.Size = 8 : .Font.Bold = True
+                .Font.Color = RGB(40, 140, 40)
+                .Position = xlLabelPositionAbove
+            End With
+        End If
+        On Error GoTo 0
+
+        ' --- Серия 5 (Давление, коричневая): цифра "5" в начале нагрева, ещё правее, выше ---
+        On Error Resume Next
+        If .SeriesCollection.Count >= 5 Then
+            Dim sr5 As Series : Set sr5 = .SeriesCollection(5)
+            Dim ptCount5 As Long : ptCount5 = sr5.Points.Count
+            If ptCount5 > 0 Then
+                Dim lbl5Pt As Long : lbl5Pt = CLng(heatMidRi * 0.6)  ' левее серии 1
+                If lbl5Pt < 1 Then lbl5Pt = 1
+                If lbl5Pt > ptCount5 Then lbl5Pt = ptCount5
+                sr5.HasDataLabels = False
+                Dim pt5 As Point : Set pt5 = sr5.Points(lbl5Pt)
+                pt5.HasDataLabel = True
+                With pt5.DataLabel
+                    .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                    .NumberFormat = "@" : .Characters.Text = "5"
+                    .Font.Size = 9 : .Font.Bold = True
+                    .Font.Color = RGB(130, 70, 20)
+                    .Position = xlLabelPositionAbove
+                End With
+            End If
+        End If
+        On Error GoTo 0
 
         ' Текстовый блок с датой — левый верхний угол графика
         Dim cycDateVal As Variant : cycDateVal = wsData.Cells(rStart, 1).Value
