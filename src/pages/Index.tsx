@@ -1742,6 +1742,30 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             On Error GoTo 0
         Next si
 
+        ' Текстовый блок с датой — левый верхний угол графика
+        Dim cycDateVal As Variant : cycDateVal = wsData.Cells(rStart, 1).Value
+        Dim cycDateStr As String
+        If IsDate(cycDateVal) Then
+            cycDateStr = Format(CDate(cycDateVal), "DD.MM.YYYY")
+        ElseIf IsNumeric(cycDateVal) And CLng(CDbl(cycDateVal)) > 1000 Then
+            cycDateStr = Format(CDate(CDbl(cycDateVal)), "DD.MM.YYYY")
+        Else
+            cycDateStr = CStr(cycDateVal)
+        End If
+        Dim tbDate As Shape
+        Set tbDate = ws.Shapes.AddTextbox( _
+            msoTextOrientationHorizontal, co.Left + 8, co.Top + 8, 90, 18)
+        With tbDate
+            .Line.Visible = msoFalse
+            .Fill.Visible = msoFalse
+            With .TextFrame2.TextRange
+                .Text = cycDateStr
+                .Font.Size = 9
+                .Font.Bold = True
+                .Font.Fill.ForeColor.RGB = RGB(60, 60, 60)
+            End With
+        End With
+
         ' Текстовый блок с временем фаз — под легендой справа
         ' Показывает: Нагрев / Удержание / Охлаждение по T среды
         If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
