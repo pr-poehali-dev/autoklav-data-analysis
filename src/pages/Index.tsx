@@ -1700,6 +1700,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim holdStart2 As Integer
     Dim coolStart2 As Integer
     Dim totalStart As Integer
+    Dim tbLabels As Shape
+    Dim tbValues As Shape
 
     With cht
         .HasTitle = True
@@ -2039,11 +2041,17 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If coolMidRi > nRows Then coolMidRi = nRows
 
         On Error Resume Next
-        ' --- Цифра "1" справа (зона охлаждения) — всегда по левую сторону синей линии ---
+        ' --- Цифра "1" справа — в начале зоны охлаждения, слева от синей линии ---
+        ' Берём точку ~15% от rHoldEnd, там линия только начала спускаться
         Set sr1r = .SeriesCollection(1)
         ptCnt1r = sr1r.Points.Count
         If ptCnt1r > 0 Then
-            lbl1r = coolMidRi
+            If rHoldEnd > 0 And rEnd > rHoldEnd Then
+                lbl1r = (rHoldEnd - rStart) + CLng((rEnd - rHoldEnd) * 0.15)
+            Else
+                lbl1r = CLng(nRows * 0.78)
+            End If
+            If lbl1r < 1 Then lbl1r = 1
             If lbl1r > ptCnt1r Then lbl1r = ptCnt1r
             Set pt1r = sr1r.Points(lbl1r)
             pt1r.HasDataLabel = True
@@ -2113,61 +2121,79 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             End With
         End With
 
-        ' Текстовый блок с временем фаз — под легендой справа
-        ' Показывает: Нагрев / Удержание / Охлаждение по T среды
+        ' Табличка фаз — под легендой справа, выравнивание через два отдельных TextBox
+        ' (метки слева, значения справа — так числа стоят по одной оси Y)
         If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
-            ' Общее время цикла
             totalCycleSec = phaseHeatSec + phaseHoldSec + phaseCoolSec
             totalStr = FormatMinSec(totalCycleSec)
 
-            ' Строим текст — Остывание только если > 0
-            phaseText = "Нагрев:         " & heatStr & Chr(10) & _
-                        "Удержание:   " & holdStr & Chr(10)
-            If phaseCoolSec > 0 Then
-                phaseText = phaseText & "Остывание:   " & coolStr & Chr(10)
-            End If
-            phaseText = phaseText & Chr(10) & _
-                        "Общее время: " & totalStr
-
-            ' Размещаем TextBox правее области построения (рядом с легендой)
+            ' Позиция: под легендой справа
+            ' Легенда стоит xlLegendPositionRight — берём правый край ChartArea минус отступ
             tbLeft = co.Left + co.Width - 155
-            tbTop  = co.Top + co.Height - 90
+            tbTop  = co.Top + 160   ' под легендой (легенда ~5 строк * 14pt + заголовок)
+
+            ' Левый TextBox — метки (жирные)
+            Dim tbLabels As Shape
+            Set tbLabels = ws.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, tbLeft, tbTop, 75, 90)
+            With tbLabels
+                .Line.Visible = msoFalse
+                .Fill.Visible = msoFalse
+                With .TextFrame2.TextRange
+                    .Font.Name = "Calibri"
+                    .Font.Size = 8
+                    .Font.Bold = True
+                    .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
+                    If phaseCoolSec > 0 Then
+                        .Text = "Нагрев:" & Chr(10) & "Удержание:" & Chr(10) & "Остывание:" & Chr(10) & Chr(10) & "Общее время:"
+                    Else
+                        .Text = "Нагрев:" & Chr(10) & "Удержание:" & Chr(10) & Chr(10) & "Общее время:"
+                    End If
+                End With
+                .TextFrame.MarginLeft = 4
+                .TextFrame.MarginRight = 0
+                .TextFrame.MarginTop = 3
+                .TextFrame.MarginBottom = 3
+                .TextFrame.AutoSize = True
+            End With
+
+            ' Правый TextBox — значения (обычный шрифт)
+            Dim tbValues As Shape
+            Set tbValues = ws.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, tbLeft + 72, tbTop, 60, 90)
+            With tbValues
+                .Line.Visible = msoFalse
+                .Fill.Visible = msoFalse
+                With .TextFrame2.TextRange
+                    .Font.Name = "Calibri"
+                    .Font.Size = 8
+                    .Font.Bold = False
+                    .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
+                    If phaseCoolSec > 0 Then
+                        .Text = heatStr & Chr(10) & holdStr & Chr(10) & coolStr & Chr(10) & Chr(10) & totalStr
+                    Else
+                        .Text = heatStr & Chr(10) & holdStr & Chr(10) & Chr(10) & totalStr
+                    End If
+                End With
+                .TextFrame.MarginLeft = 2
+                .TextFrame.MarginRight = 4
+                .TextFrame.MarginTop = 3
+                .TextFrame.MarginBottom = 3
+                .TextFrame.AutoSize = True
+            End With
+
+            ' Рамка вокруг обоих блоков
             Set tb = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, tbLeft, tbTop, 150, 80)
+                msoTextOrientationHorizontal, tbLeft - 2, tbTop - 2, 138, 4)
             With tb
                 .Line.Visible = msoTrue
                 .Line.ForeColor.RGB = RGB(200, 200, 200)
                 .Fill.ForeColor.RGB = RGB(250, 252, 255)
                 .Fill.Solid
-                With .TextFrame2.TextRange
-                    .Text = phaseText
-                    .Font.Size = 8
-                    .Font.Bold = False
-                    .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
-                    ' Нагрев — чёрный жирный
-                    .Characters(1, 6).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
-                    .Characters(1, 6).Font.Bold = True
-                    ' Удержание — чёрный жирный
-                    holdStart2 = Len("Нагрев:         " & heatStr & Chr(10)) + 1
-                    .Characters(holdStart2, 9).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
-                    .Characters(holdStart2, 9).Font.Bold = True
-                    ' Остывание — чёрный жирный (если есть)
-                    If phaseCoolSec > 0 Then
-                        coolStart2 = holdStart2 + Len("Удержание:   " & holdStr & Chr(10))
-                        .Characters(coolStart2, 9).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
-                        .Characters(coolStart2, 9).Font.Bold = True
-                    End If
-                    ' Общее время — жирный тёмный
-                    If phaseCoolSec > 0 Then
-                        totalStart = holdStart2 + Len("Удержание:   " & holdStr & Chr(10)) + Len("Остывание:   " & coolStr & Chr(10)) + 2
-                    Else
-                        totalStart = holdStart2 + Len("Удержание:   " & holdStr & Chr(10)) + 2
-                    End If
-                    .Characters(totalStart, 12).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
-                    .Characters(totalStart, 12).Font.Bold = True
-                End With
-                .TextFrame.AutoSize = True
+                .TextFrame2.TextRange.Text = ""
+                .Height = 90
             End With
+            tb.ZOrder msoSendToBack
         End If
 
     End With
