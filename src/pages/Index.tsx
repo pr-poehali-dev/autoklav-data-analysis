@@ -2056,6 +2056,45 @@ export default function Index() {
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const downloadBas = () => {
+    // Конвертируем UTF-8 строку в Windows-1251 через TextEncoder не поддерживает 1251,
+    // поэтому используем escape/unescape трюк для создания бинарного Blob
+    const win1251 = new Uint8Array(
+      VBA_CODE.split("").map((ch) => {
+        const code = ch.charCodeAt(0);
+        // ASCII — без изменений
+        if (code < 128) return code;
+        // Таблица перекодировки Unicode → Windows-1251 для кириллицы
+        const map: Record<number, number> = {
+          0x0410: 0xc0, 0x0411: 0xc1, 0x0412: 0xc2, 0x0413: 0xc3, 0x0414: 0xc4,
+          0x0415: 0xc5, 0x0416: 0xc6, 0x0417: 0xc7, 0x0418: 0xc8, 0x0419: 0xc9,
+          0x041a: 0xca, 0x041b: 0xcb, 0x041c: 0xcc, 0x041d: 0xcd, 0x041e: 0xce,
+          0x041f: 0xcf, 0x0420: 0xd0, 0x0421: 0xd1, 0x0422: 0xd2, 0x0423: 0xd3,
+          0x0424: 0xd4, 0x0425: 0xd5, 0x0426: 0xd6, 0x0427: 0xd7, 0x0428: 0xd8,
+          0x0429: 0xd9, 0x042a: 0xda, 0x042b: 0xdb, 0x042c: 0xdc, 0x042d: 0xdd,
+          0x042e: 0xde, 0x042f: 0xdf,
+          0x0430: 0xe0, 0x0431: 0xe1, 0x0432: 0xe2, 0x0433: 0xe3, 0x0434: 0xe4,
+          0x0435: 0xe5, 0x0436: 0xe6, 0x0437: 0xe7, 0x0438: 0xe8, 0x0439: 0xe9,
+          0x043a: 0xea, 0x043b: 0xeb, 0x043c: 0xec, 0x043d: 0xed, 0x043e: 0xee,
+          0x043f: 0xef, 0x0440: 0xf0, 0x0441: 0xf1, 0x0442: 0xf2, 0x0443: 0xf3,
+          0x0444: 0xf4, 0x0445: 0xf5, 0x0446: 0xf6, 0x0447: 0xf7, 0x0448: 0xf8,
+          0x0449: 0xf9, 0x044a: 0xfa, 0x044b: 0xfb, 0x044c: 0xfc, 0x044d: 0xfd,
+          0x044e: 0xfe, 0x044f: 0xff,
+          0x0401: 0xa8, 0x0451: 0xb8, // Ё ё
+          0x00b0: 0xb0, // °
+        };
+        return map[code] ?? 0x3f; // неизвестный символ → '?'
+      })
+    );
+    const blob = new Blob([win1251], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Autoclave_F0.bas";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-[#060d16] text-[#b0c4d4] font-['IBM_Plex_Sans',sans-serif]">
       {/* Header */}
@@ -2561,6 +2600,14 @@ export default function Index() {
             >
               <Icon name={copied ? "Check" : "Copy"} size={12} />
               {copied ? "Скопировано!" : "Копировать код"}
+            </button>
+            <button
+              onClick={downloadBas}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-medium border bg-[#0a1420] border-[#22c55e]/30 text-[#22c55e] hover:bg-[#0d1e10] hover:border-[#22c55e]/50 transition-all"
+              title="Скачать .bas файл в кодировке Windows-1251 для импорта в VBA редактор"
+            >
+              <Icon name="Download" size={12} />
+              Скачать .bas
             </button>
           </div>
           <textarea
