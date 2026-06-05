@@ -1397,7 +1397,7 @@ End Sub
 '-------------------------------------------------------------
 Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     rStart As Long, rEnd As Long, cycleIdx As Integer, _
-    tRefC As Double, topOffset As Long)
+    tRefC As Double, topOffset As Long, csvFileName As String)
 
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
@@ -1733,10 +1733,25 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim totalStart As Integer
     Dim tbLabels As Shape
     Dim tbValues As Shape
+    Dim tbFileNames As Shape
+    Dim chartTitleStr As String
+
+    ' Вычисляем дату заранее — нужна для заголовка графика
+    cycDateVal = wsData.Cells(rStart, 1).Value
+    If IsDate(cycDateVal) Then
+        cycDateStr = Format(CDate(cycDateVal), "DD.MM.YYYY")
+    ElseIf IsNumeric(cycDateVal) And CLng(CDbl(cycDateVal)) > 1000 Then
+        cycDateStr = Format(CDate(CDbl(cycDateVal)), "DD.MM.YYYY")
+    Else
+        cycDateStr = CStr(cycDateVal)
+    End If
+
+    ' Заголовок: дата + Термограмма цикл N
+    chartTitleStr = cycDateStr & "     Термограмма  цикл " & cycleIdx
 
     With cht
         .HasTitle = True
-        .ChartTitle.Text = "Цикл " & cycleIdx
+        .ChartTitle.Text = chartTitleStr
         .ChartTitle.Font.Size = 11
         .ChartTitle.Font.Bold = True
         .ChartTitle.Font.Color = RGB(20, 20, 20)
@@ -2130,38 +2145,31 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         On Error GoTo 0
 
-        ' Текстовый блок с датой — левый верхний угол графика
-        cycDateVal = wsData.Cells(rStart, 1).Value
-        If IsDate(cycDateVal) Then
-            cycDateStr = Format(CDate(cycDateVal), "DD.MM.YYYY")
-        ElseIf IsNumeric(cycDateVal) And CLng(CDbl(cycDateVal)) > 1000 Then
-            cycDateStr = Format(CDate(CDbl(cycDateVal)), "DD.MM.YYYY")
-        Else
-            cycDateStr = CStr(cycDateVal)
-        End If
-        Set tbDate = ws.Shapes.AddTextbox( _
-            msoTextOrientationHorizontal, co.Left + 8, co.Top + 8, 90, 18)
-        With tbDate
+        ' Текстовый блок с именами файлов — справа от заголовка (вне графика, над ним)
+        Set tbFileNames = ws.Shapes.AddTextbox( _
+            msoTextOrientationHorizontal, co.Left + co.Width - 200, co.Top + 2, 195, 16)
+        With tbFileNames
             .Line.Visible = msoFalse
             .Fill.Visible = msoFalse
             With .TextFrame2.TextRange
-                .Text = cycDateStr
-                .Font.Size = 9
-                .Font.Bold = True
-                .Font.Fill.ForeColor.RGB = RGB(60, 60, 60)
+                .Text = csvFileName
+                .Font.Size = 8
+                .Font.Bold = False
+                .ParagraphFormat.Alignment = msoAlignRight
+                .Font.Fill.ForeColor.RGB = RGB(80, 80, 80)
             End With
+            .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 2
+            .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
         End With
-
         ' Табличка фаз — под легендой справа, выравнивание через два отдельных TextBox
         ' (метки слева, значения справа — так числа стоят по одной оси Y)
         If phaseHeatSec > 0 Or phaseHoldSec > 0 Or phaseCoolSec > 0 Then
             totalCycleSec = phaseHeatSec + phaseHoldSec + phaseCoolSec
             totalStr = FormatMinSec(totalCycleSec)
 
-            ' Позиция: под легендой справа
-            ' Легенда стоит xlLegendPositionRight — берём правый край ChartArea минус отступ
-            tbLeft = co.Left + co.Width - 155
-            tbTop  = co.Top + 160   ' под легендой (легенда ~5 строк * 14pt + заголовок)
+            ' Позиция: ПОД графиком — там точно печатается и не перекрывается
+            tbLeft = co.Left + co.Width - 160
+            tbTop  = co.Top + co.Height + 5
 
             ' Левый TextBox — метки (жирные)
             Set tbLabels = ws.Shapes.AddTextbox( _
@@ -2211,16 +2219,20 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .TextFrame.AutoSize = True
             End With
 
-            ' Рамка вокруг обоих блоков
+            ' Рамка вокруг таблички
             Set tb = ws.Shapes.AddTextbox( _
-                msoTextOrientationHorizontal, tbLeft - 2, tbTop - 2, 138, 4)
+                msoTextOrientationHorizontal, tbLeft - 2, tbTop - 2, 162, 4)
             With tb
                 .Line.Visible = msoTrue
-                .Line.ForeColor.RGB = RGB(200, 200, 200)
+                .Line.ForeColor.RGB = RGB(180, 180, 190)
                 .Fill.ForeColor.RGB = RGB(250, 252, 255)
                 .Fill.Solid
                 .TextFrame2.TextRange.Text = ""
-                .Height = 90
+                If phaseCoolSec > 0 Then
+                    .Height = 96
+                Else
+                    .Height = 82
+                End If
             End With
             tb.ZOrder msoSendToBack
         End If
@@ -2245,10 +2257,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     ws.Cells.Interior.Color = RGB(245, 248, 252)
 
     ' Заголовок листа
-    ws.Cells(1, 1).Value = "Графики температуры и F0 — " & csvFileName
-    ws.Cells(1, 1).Font.Size = 12
-    ws.Cells(1, 1).Font.Bold = True
-    ws.Cells(1, 1).Font.Color = RGB(0, 80, 160)
+    ' Строка-заголовок листа убрана — вся информация теперь в заголовке каждого графика
 
 
     ' Та же логика обнаружения циклов что и в DetectCyclesAndCalculateF0
@@ -2262,7 +2271,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim tKmaxCy As Double : tKmaxCy = 0
     Dim tProdMaxCy As Double : tProdMaxCy = 0  ' MAX T продукта за цикл
     Dim cycIdx As Integer : cycIdx = 0
-    Dim topOffset As Long : topOffset = 20  ' отступ сверху первого графика
+    Dim topOffset As Long : topOffset = 5  ' отступ сверху первого графика
 
     Dim p As Long
     For p = 2 To lastRow
@@ -2317,8 +2326,8 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 ' Не строить график если T продукта не поднималась до 100°C — прогрев без стерилизации
                 If tProdMaxCy >= T_PEAK_STERIL Then
                     cycIdx = cycIdx + 1
-                    Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset)
-                    topOffset = topOffset + 510  ' CHART_H(490) + 20pt отступ между графиками
+                    Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
+                    topOffset = topOffset + 560  ' CHART_H(510) + 50pt для таблички фаз + отступ
                 End If
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
