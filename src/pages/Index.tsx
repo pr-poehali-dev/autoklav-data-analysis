@@ -1457,7 +1457,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' arrF0 — Variant чтобы хранить Empty (разрыв линии до начала накопления)
     Dim arrEnv() As Double, arrProd() As Double, arrTref() As Double
     Dim arrF0() As Variant
-    Dim arrPressure() As Double
+    Dim arrPressure() As Variant
     ReDim arrEnv(1 To nRows)
     ReDim arrProd(1 To nRows)
     ReDim arrF0(1 To nRows)
@@ -1483,22 +1483,29 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         arrF0raw(ri)    = IIf(IsNumeric(vF0), CDbl(vF0), 0)
         arrPressure(ri) = IIf(IsNumeric(vPress), CDbl(vPress), 0)
         If arrF0raw(ri) > f0MaxVal Then f0MaxVal = arrF0raw(ri)
-        If arrPressure(ri) > pressMaxVal Then pressMaxVal = arrPressure(ri)
+        If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) > pressMaxVal Then pressMaxVal = CDbl(arrPressure(ri))
     Next ri
 
-    ' Проход 1б: находим последнее ненулевое давление и продлеваем до конца
-    ' Это нужно чтобы коричневая линия не падала вниз в конце графика
-    Dim pressLastRi As Long : pressLastRi = 0
-    For ri = nRows To 1 Step -1
-        If arrPressure(ri) > 0.01 Then
-            pressLastRi = ri
-            Exit For
+    ' Проход 1б: обрезаем давление — после начала устойчивого падения ставим Empty
+    ' Это убирает некрасивый хвост линии вниз в конце цикла
+    Dim pressMax2 As Double : pressMax2 = 0
+    For ri = 1 To nRows
+        If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) > pressMax2 Then
+            pressMax2 = CDbl(arrPressure(ri))
         End If
     Next ri
-    If pressLastRi > 0 And pressLastRi < nRows Then
-        Dim pressLastVal As Double : pressLastVal = arrPressure(pressLastRi)
-        For ri = pressLastRi + 1 To nRows
-            arrPressure(ri) = pressLastVal
+    If pressMax2 > 0 Then
+        ' Ищем с конца: первая точка где давление ещё >= 40% от максимума
+        Dim pressStopRi As Long : pressStopRi = nRows
+        For ri = nRows To 1 Step -1
+            If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) >= pressMax2 * 0.4 Then
+                pressStopRi = ri
+                Exit For
+            End If
+        Next ri
+        ' После этой точки — Empty (линия не рисуется)
+        For ri = pressStopRi + 1 To nRows
+            arrPressure(ri) = Empty
         Next ri
     End If
 
@@ -1766,7 +1773,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If ckW < 32 Then ckW = 32
         If ckW > 52 Then ckW = 52
         ' pa.Top + pa.Height = нижний край PlotArea вместе с метками оси X
-        ckYpos = pa.Top + pa.Height + 3
+        ' Синяя шкала реального времени — на 14pt ниже серой шкалы (чтобы не перекрывались)
+        ckYpos = pa.Top + pa.Height + 14
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
@@ -1876,7 +1884,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             With pt1.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
                 .NumberFormat = "@" : .Characters.Text = "1"
-                .Font.Size = 9 : .Font.Bold = True
+                .Font.Size = 18 : .Font.Bold = True
                 .Font.Color = RGB(30, 80, 200)
                 .Position = xlLabelPositionAbove
             End With
@@ -1897,7 +1905,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             With pt2.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
                 .NumberFormat = "@" : .Characters.Text = "2"
-                .Font.Size = 9 : .Font.Bold = True
+                .Font.Size = 18 : .Font.Bold = True
                 .Font.Color = RGB(210, 30, 30)
                 .Position = xlLabelPositionBelow
             End With
@@ -1917,7 +1925,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 With pt4start.DataLabel
                     .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
                     .NumberFormat = "@" : .Characters.Text = "4"
-                    .Font.Size = 9 : .Font.Bold = True
+                    .Font.Size = 18 : .Font.Bold = True
                     .Font.Color = RGB(40, 140, 40)
                     .Position = xlLabelPositionAbove
                 End With
@@ -1954,7 +1962,71 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 With pt5.DataLabel
                     .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
                     .NumberFormat = "@" : .Characters.Text = "5"
-                    .Font.Size = 9 : .Font.Bold = True
+                    .Font.Size = 18 : .Font.Bold = True
+                    .Font.Color = RGB(130, 70, 20)
+                    .Position = xlLabelPositionAbove
+                End With
+            End If
+        End If
+        On Error GoTo 0
+
+        ' === Дублирующие цифры серий справа — в зоне охлаждения ===
+        ' Позиция: 80% от rHoldEnd до rEnd (середина зоны охлаждения)
+        Dim coolMidRi As Long
+        If rHoldEnd > 0 And rEnd > rHoldEnd Then
+            coolMidRi = (rHoldEnd - rStart) + CLng((rEnd - rHoldEnd) * 0.5)
+        Else
+            coolMidRi = CLng(nRows * 0.85)
+        End If
+        If coolMidRi < 1 Then coolMidRi = 1
+        If coolMidRi > nRows Then coolMidRi = nRows
+
+        On Error Resume Next
+        ' --- Цифра "1" справа ---
+        Dim sr1r As Series : Set sr1r = .SeriesCollection(1)
+        Dim ptCnt1r As Long : ptCnt1r = sr1r.Points.Count
+        If ptCnt1r > 0 Then
+            Dim lbl1r As Long : lbl1r = coolMidRi
+            If lbl1r > ptCnt1r Then lbl1r = ptCnt1r
+            Dim pt1r As Point : Set pt1r = sr1r.Points(lbl1r)
+            pt1r.HasDataLabel = True
+            With pt1r.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@" : .Characters.Text = "1"
+                .Font.Size = 18 : .Font.Bold = True
+                .Font.Color = RGB(30, 80, 200)
+                .Position = xlLabelPositionAbove
+            End With
+        End If
+        ' --- Цифра "2" справа ---
+        Dim sr2r As Series : Set sr2r = .SeriesCollection(2)
+        Dim ptCnt2r As Long : ptCnt2r = sr2r.Points.Count
+        If ptCnt2r > 0 Then
+            Dim lbl2r As Long : lbl2r = CLng(coolMidRi * 1.05)
+            If lbl2r > ptCnt2r Then lbl2r = ptCnt2r
+            Dim pt2r As Point : Set pt2r = sr2r.Points(lbl2r)
+            pt2r.HasDataLabel = True
+            With pt2r.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@" : .Characters.Text = "2"
+                .Font.Size = 18 : .Font.Bold = True
+                .Font.Color = RGB(210, 30, 30)
+                .Position = xlLabelPositionBelow
+            End With
+        End If
+        ' --- Цифра "5" (давление) справа — только если серия есть ---
+        If .SeriesCollection.Count >= 5 Then
+            Dim sr5r As Series : Set sr5r = .SeriesCollection(5)
+            Dim ptCnt5r As Long : ptCnt5r = sr5r.Points.Count
+            If ptCnt5r > 0 Then
+                Dim lbl5r As Long : lbl5r = coolMidRi
+                If lbl5r > ptCnt5r Then lbl5r = ptCnt5r
+                Dim pt5r As Point : Set pt5r = sr5r.Points(lbl5r)
+                pt5r.HasDataLabel = True
+                With pt5r.DataLabel
+                    .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                    .NumberFormat = "@" : .Characters.Text = "5"
+                    .Font.Size = 18 : .Font.Bold = True
                     .Font.Color = RGB(130, 70, 20)
                     .Position = xlLabelPositionAbove
                 End With
@@ -2019,19 +2091,19 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .Text = phaseText
                     .Font.Size = 8
                     .Font.Bold = False
-                    .Font.Fill.ForeColor.RGB = RGB(40, 40, 40)
-                    ' Нагрев — синий
-                    .Characters(1, 6).Font.Fill.ForeColor.RGB = RGB(30, 80, 200)
+                    .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
+                    ' Нагрев — чёрный жирный
+                    .Characters(1, 6).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                     .Characters(1, 6).Font.Bold = True
-                    ' Удержание — тёмно-красный
+                    ' Удержание — чёрный жирный
                     Dim holdStart2 As Integer : holdStart2 = Len("Нагрев:         " & heatStr & Chr(10)) + 1
-                    .Characters(holdStart2, 9).Font.Fill.ForeColor.RGB = RGB(180, 40, 40)
+                    .Characters(holdStart2, 9).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                     .Characters(holdStart2, 9).Font.Bold = True
-                    ' Остывание — зелёный (если есть)
+                    ' Остывание — чёрный жирный (если есть)
                     If phaseCoolSec > 0 Then
                         Dim coolStart2 As Integer
                         coolStart2 = holdStart2 + Len("Удержание:   " & holdStr & Chr(10))
-                        .Characters(coolStart2, 9).Font.Fill.ForeColor.RGB = RGB(30, 140, 30)
+                        .Characters(coolStart2, 9).Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                         .Characters(coolStart2, 9).Font.Bold = True
                     End If
                     ' Общее время — жирный тёмный
