@@ -1370,7 +1370,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
     Const CHART_W As Long = 820   ' ширина — до колонки N
-    Const CHART_H As Long = 520   ' высота: место под 2 строки меток оси X
+    Const CHART_H As Long = 500   ' высота ~17.5 см
 
     ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
     ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
@@ -1437,8 +1437,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     holdStr = FormatMinSec(phaseHoldSec)
     coolStr = FormatMinSec(phaseCoolSec)
 
-    ' --- Метки времени на оси X — накопительное время от начала цикла ---
-    ' Используем абсолютные секунды чтобы корректно пересекать полночь
+    ' --- Метки времени на оси X: строка 1 — длительность цикла, строка 2 — реальное время ---
     Dim timeLabels() As String
     ReDim timeLabels(1 To nRows)
     Dim ri As Long
@@ -1450,7 +1449,23 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         Dim elMin As Long : elMin = CLng(Int(secElapsed / 60))
         Dim elHr As Long  : elHr  = CLng(Int(elMin / 60))
         Dim elMn As Long  : elMn  = elMin Mod 60
-        timeLabels(ri) = Format(elHr, "00") & ":" & Format(elMn, "00")
+        Dim elStr As String : elStr = Format(elHr, "00") & ":" & Format(elMn, "00")
+        ' Реальное время из столбца B (Excel-дробь * 1440 минут)
+        Dim tvB As Variant : tvB = wsData.Cells(rStart + ri - 1, 2).Value
+        Dim rtStr As String
+        If IsNumeric(tvB) Then
+            Dim rtAllMin As Long : rtAllMin = CLng(Int(CDbl(tvB) * 1440))
+            Dim rtHH As Long : rtHH = CLng(Int(rtAllMin / 60)) Mod 24
+            Dim rtMM As Long : rtMM = rtAllMin Mod 60
+            rtStr = Format(rtHH, "00") & ":" & Format(rtMM, "00")
+        Else
+            rtStr = ""
+        End If
+        If rtStr <> "" Then
+            timeLabels(ri) = elStr & Chr(10) & rtStr
+        Else
+            timeLabels(ri) = elStr
+        End If
     Next ri
 
     ' --- Данные серий ---
@@ -1605,25 +1620,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     s4.Smooth = True
     s4.AxisGroup = xlPrimary
 
-    ' --- Переменные для шкалы реального времени и оси X (объявляем ДО With cht) ---
     Dim tickStep As Long
-    Dim pa      As PlotArea
-    Dim paLeft  As Double
-    Dim paW     As Double
-    Dim paBot   As Double
-    Dim stepPt  As Double
-    Dim rtTop   As Double
-    Dim rtBoxH  As Double
-    Dim rtBoxW  As Double
-    Dim tki     As Long
-    Dim rtSec2  As Double
-    Dim rtTotalMin2 As Long
-    Dim rtHour  As Long
-    Dim rtMin   As Long
-    Dim rtLabel As String
-    Dim xPos    As Double
-    Dim tbRt    As Shape
-    Dim tvRaw   As Variant
 
     With cht
         .HasTitle = True
@@ -1683,6 +1680,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .HasTitle = False
             .TickLabels.Font.Size = 7
             .TickLabels.Font.Color = RGB(50, 50, 50)
+            .TickLabels.Orientation = xlHorizontal
             .TickLabelSpacing = tickStep
             .TickMarkSpacing = tickStep
             ' Вертикальная сетка по времени — мелкий пунктир снизу вверх
@@ -1692,64 +1690,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .MajorGridlines.Format.Line.Weight = 0.5
             .MajorTickMark = xlTickMarkCross
         End With
-
-        ' === Шкала реального времени суток — TextBox под осью X ===
-        ' Читаем время напрямую из столбца B (Excel-дробь hh:mm:ss)
-        Set pa = .PlotArea
-        paLeft = co.Left + pa.InsideLeft
-        paW    = pa.InsideWidth
-        paBot  = co.Top + pa.InsideTop + pa.InsideHeight
-
-        If nRows > 1 Then
-            stepPt = paW / (nRows - 1) * tickStep
-        Else
-            stepPt = paW
-        End If
-
-        ' Метки реального времени — 14pt ниже paBot (после стандартных меток длительности)
-        rtTop  = paBot + 14
-        rtBoxH = 12
-        rtBoxW = stepPt - 2
-        If rtBoxW < 28 Then rtBoxW = 28
-        If rtBoxW > 55 Then rtBoxW = 55
-
-        For tki = 1 To nRows Step tickStep
-            ' Берём время напрямую из столбца B — Excel хранит как дробь 0..1
-            tvRaw = wsData.Cells(rStart + tki - 1, 2).Value
-            If IsNumeric(tvRaw) Then
-                ' Дробь Excel: умножаем на 1440 минут в сутках
-                rtTotalMin2 = CLng(Int(CDbl(tvRaw) * 1440))
-                rtHour = CLng(Int(rtTotalMin2 / 60)) Mod 24
-                rtMin  = rtTotalMin2 Mod 60
-                rtLabel = Format(rtHour, "00") & ":" & Format(rtMin, "00")
-            ElseIf InStr(CStr(tvRaw), ":") > 0 Then
-                rtSec2 = RowAbsSeconds(wsData, rStart + tki - 1)
-                rtTotalMin2 = CLng(Int(rtSec2 / 60))
-                rtHour = CLng(Int(rtTotalMin2 / 60)) Mod 24
-                rtMin  = rtTotalMin2 Mod 60
-                rtLabel = Format(rtHour, "00") & ":" & Format(rtMin, "00")
-            Else
-                rtLabel = ""
-            End If
-
-            If rtLabel <> "" Then
-                xPos = paLeft + (tki - 1) * (paW / (nRows - 1)) - rtBoxW / 2
-                Set tbRt = ws.Shapes.AddTextbox( _
-                    msoTextOrientationHorizontal, xPos, rtTop, rtBoxW, rtBoxH)
-                With tbRt
-                    .Line.Visible = msoFalse
-                    .Fill.Visible = msoFalse
-                    With .TextFrame2.TextRange
-                        .Text = rtLabel
-                        .Font.Size = 7
-                        .ParagraphFormat.Alignment = msoAlignCenter
-                        .Font.Fill.ForeColor.RGB = RGB(0, 80, 160)
-                    End With
-                    .TextFrame.HorizontalAlignment = xlHAlignCenter
-                    .TextFrame.VerticalAlignment = xlVAlignTop
-                End With
-            End If
-        Next tki
 
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
