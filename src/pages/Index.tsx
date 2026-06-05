@@ -1742,7 +1742,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         On Error GoTo 0
         With .Axes(xlValue, xlSecondary)
             .HasTitle = True
-            .AxisTitle.Text = "Давление (бар)"
+            .AxisTitle.Text = "Давление (мБар)"
             .AxisTitle.Font.Size = 8
             .AxisTitle.Font.Color = RGB(130, 70, 20)
             If pressMaxVal > 0 Then
@@ -1804,9 +1804,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         If ckW > 52 Then ckW = 52
 
         ' Шкала 1 (серая, длительность цикла): сразу под линиями графика
-        grayYpos = paITop + paIHeight + 2
-        ' Шкала 2 (синяя, реальное время): на 13pt ниже серой
-        blueYpos = paITop + paIHeight + 15
+        grayYpos = paITop + paIHeight + 3
+        ' Шкала 2 (синяя, реальное время): на 16pt ниже серой — чтобы не накладывались
+        blueYpos = paITop + paIHeight + 19
 
         ckLastAdded = 0
         For ckTki = 1 To nRows Step tickStep
@@ -1923,12 +1923,14 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         If heatMidRi < 1 Then heatMidRi = 1
 
-        ' --- Серия 1 (T среды, синяя): цифра "1" в середине нагрева, выше линии ---
+        ' --- Серия 1 (T среды, синяя): цифра "1" в начале нагрева, высоко над линией ---
+        ' Берём точку ~20% от середины нагрева — там T среды ещё низко, метка не сольётся с F0
         On Error Resume Next
         Set sr1 = .SeriesCollection(1)
         ptCount1 = sr1.Points.Count
         If ptCount1 > 0 Then
-            lbl1Pt = heatMidRi
+            lbl1Pt = CLng(heatMidRi * 0.2)
+            If lbl1Pt < 1 Then lbl1Pt = 1
             If lbl1Pt > ptCount1 Then lbl1Pt = ptCount1
             sr1.HasDataLabels = False
             Set pt1 = sr1.Points(lbl1Pt)
