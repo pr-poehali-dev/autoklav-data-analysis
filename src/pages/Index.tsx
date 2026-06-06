@@ -1498,7 +1498,6 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim f0MaxVal As Double : f0MaxVal = 0
     Dim pressMaxVal As Double : pressMaxVal = 0
-    envMaxVal = 0 : prodMaxVal = 0
 
     ' Проход 1: заполняем env/prod/tref/pressure, собираем сырые F0 во временный массив
     Dim arrF0raw() As Double
