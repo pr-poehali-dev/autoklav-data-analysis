@@ -1922,8 +1922,13 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         Next ckTki
 
         ' Последняя точка — если не попала в Step
+        ' Защита от слипания: добавляем только если достаточно отступа от предыдущей метки
         If ckLastAdded < nRows Then
             xPtLast = paILeft + paIWidth - ckW / 2
+            ' Пропускаем последнюю если слишком близко к предпоследней (< 80% ширины метки)
+            Dim xPtPrev As Double
+            xPtPrev = paILeft + (ckLastAdded - 1) * (paIWidth / (nRows - 1)) - ckW / 2
+            If xPtLast - xPtPrev < ckW * 0.8 Then GoTo SkipLastLabel
             ' Серая последняя
             Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, grayYpos, ckW, 12)
             With ckTb
@@ -1963,6 +1968,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 End With
             End If
         End If
+        SkipLastLabel:
 
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
@@ -2032,7 +2038,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ptCount3 = sr3.Points.Count
         If ptCount3 > 0 Then
             sr3.HasDataLabels = False
-            lbl3Pt = IIf(ptCount3 >= 5, 5, 1)
+            lbl3Pt = IIf(ptCount3 >= 12, 12, IIf(ptCount3 >= 5, 5, 1))
             Set pt3 = sr3.Points(lbl3Pt)
             pt3.HasDataLabel = True
             With pt3.DataLabel
@@ -2097,7 +2103,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .NumberFormat = "@" : .Characters.Text = "5"
                     .Font.Size = 18 : .Font.Bold = True
                     .Font.Color = RGB(130, 70, 20)
-                    .Position = xlLabelPositionRight
+                    .Position = xlLabelPositionAbove
                 End With
             End If
         End If
@@ -2401,7 +2407,19 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 ' Не строить график если T продукта не поднималась до 100°C — прогрев без стерилизации
                 If tProdMaxCy >= T_PEAK_STERIL Then
                     cycIdx = cycIdx + 1
-                    Call BuildOneCycleChart(ws, wsData, cyStart, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
+                    ' Захватываем нагрев ДО начала давления — ищем строки назад где T среды >= 40°C
+                    Dim cyStartExt As Long : cyStartExt = cyStart
+                    Dim backRow As Long
+                    For backRow = cyStart - 1 To 2 Step -1
+                        Dim bTv As Variant : bTv = wsData.Cells(backRow, 4).Value
+                        If IsNumeric(bTv) Then
+                            If CDbl(bTv) < 40# Then Exit For
+                        Else
+                            Exit For
+                        End If
+                        cyStartExt = backRow
+                    Next backRow
+                    Call BuildOneCycleChart(ws, wsData, cyStartExt, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
                     topOffset = topOffset + 530  ' CHART_H(510) + 20pt отступ между графиками
                 End If
 
