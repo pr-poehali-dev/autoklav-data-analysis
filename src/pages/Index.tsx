@@ -1708,6 +1708,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim blueYpos     As Double
     Dim xPt          As Double
     Dim xPtLast      As Double
+    Dim xPtPrev      As Double
     Dim grayLabel    As String
     Dim pressAxisMax As Double
     Dim heatMidRi    As Long
@@ -1922,53 +1923,51 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         Next ckTki
 
         ' Последняя точка — если не попала в Step
-        ' Защита от слипания: добавляем только если достаточно отступа от предыдущей метки
         If ckLastAdded < nRows Then
             xPtLast = paILeft + paIWidth - ckW / 2
-            ' Пропускаем последнюю если слишком близко к предпоследней (< 80% ширины метки)
-            Dim xPtPrev As Double
+            ' Защита от слипания: пропускаем если < 80% ширины метки от предыдущей
             xPtPrev = paILeft + (ckLastAdded - 1) * (paIWidth / (nRows - 1)) - ckW / 2
-            If xPtLast - xPtPrev < ckW * 0.8 Then GoTo SkipLastLabel
-            ' Серая последняя
-            Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, grayYpos, ckW, 12)
-            With ckTb
-                .Line.Visible = msoFalse : .Fill.Visible = msoFalse
-                With .TextFrame2.TextRange
-                    .Text = timeLabels(nRows)
-                    .Font.Size = 7
-                    .ParagraphFormat.Alignment = msoAlignCenter
-                    .Font.Fill.ForeColor.RGB = RGB(50, 50, 50)
-                    .Font.Bold = False
-                End With
-                .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
-                .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
-            End With
-            ' Синяя последняя
-            ckTvB = wsData.Cells(rStart + nRows - 1, 2).Value
-            ckLabel = ""
-            If IsNumeric(ckTvB) Then
-                ckAllMin = Int(CDbl(ckTvB) * 1440)
-                ckHH     = Int(ckAllMin / 60) Mod 24
-                ckMM     = ckAllMin Mod 60
-                ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
-            End If
-            If ckLabel <> "" Then
-                Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, blueYpos, ckW, 12)
+            If xPtLast - xPtPrev >= ckW * 0.8 Then
+                ' Серая последняя
+                Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, grayYpos, ckW, 12)
                 With ckTb
                     .Line.Visible = msoFalse : .Fill.Visible = msoFalse
                     With .TextFrame2.TextRange
-                        .Text = ckLabel
+                        .Text = timeLabels(nRows)
                         .Font.Size = 7
                         .ParagraphFormat.Alignment = msoAlignCenter
-                        .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
+                        .Font.Fill.ForeColor.RGB = RGB(50, 50, 50)
                         .Font.Bold = False
                     End With
                     .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
                     .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
                 End With
+                ' Синяя последняя
+                ckTvB = wsData.Cells(rStart + nRows - 1, 2).Value
+                ckLabel = ""
+                If IsNumeric(ckTvB) Then
+                    ckAllMin = Int(CDbl(ckTvB) * 1440)
+                    ckHH     = Int(ckAllMin / 60) Mod 24
+                    ckMM     = ckAllMin Mod 60
+                    ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
+                End If
+                If ckLabel <> "" Then
+                    Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, blueYpos, ckW, 12)
+                    With ckTb
+                        .Line.Visible = msoFalse : .Fill.Visible = msoFalse
+                        With .TextFrame2.TextRange
+                            .Text = ckLabel
+                            .Font.Size = 7
+                            .ParagraphFormat.Alignment = msoAlignCenter
+                            .Font.Fill.ForeColor.RGB = RGB(0, 80, 200)
+                            .Font.Bold = False
+                        End With
+                        .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                        .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
+                    End With
+                End If
             End If
         End If
-        SkipLastLabel:
 
         ' Легенда справа — с номерами линий читается и на ч/б распечатке
         .HasLegend = True
@@ -2328,9 +2327,9 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
-    For Each ws In wb.Sheets
-        If ws.Name = "График" Then ws.Delete
-    Next ws
+    On Error Resume Next
+    wb.Sheets("График").Delete
+    On Error GoTo 0
     Application.DisplayAlerts = True
 
     Set ws = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
