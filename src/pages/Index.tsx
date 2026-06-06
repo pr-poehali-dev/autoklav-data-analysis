@@ -1742,7 +1742,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim ctLeft As Double
     Dim ctTop  As Double
     Dim sr3 As Series, pt3 As Point, ptCount3 As Long, lbl3Pt As Long
-    Dim tbStats As Shape, tbStatsLabels As Shape, tbStatsValues As Shape
+    Dim tbStats As Shape, tbStatsLabels As Shape, tbStatsValues As Shape, tbF0 As Shape
+    Dim f0TbX As Double
     Dim statsLeft As Double, statsTop As Double
 
     ' Вычисляем дату заранее — нужна для заголовка графика
@@ -2068,20 +2069,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .Position = xlLabelPositionAbove
                 End With
             End If
-            ' "F0=X.X мин" — на середине плато
-            f0MidPt = CLng((f0PlatoRi + f0LastRi) / 2)
-            If f0MidPt < 1 Then f0MidPt = 1
-            If f0MidPt > ptCount4 Then f0MidPt = ptCount4
-            Set platoPoint = sr4.Points(f0MidPt)
-            platoPoint.HasDataLabel = True
-            With platoPoint.DataLabel
-                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
-                .NumberFormat = "@"
-                .Characters.Text = "F0=" & Format(f0MaxVal, "0.0") & " мин"
-                .Font.Size = 8 : .Font.Bold = True
-                .Font.Color = RGB(40, 140, 40)
-                .Position = xlLabelPositionAbove
-            End With
+            ' "F0=X.X мин" — TextBox правее плато, не перекрывает линии (рисуется ниже)
         End If
         On Error GoTo 0
 
@@ -2200,7 +2188,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         statsLeft = 637
         statsTop  = 28
 
-        ' Рамка фон
+        ' Рамка фон (4 строки: T среды, T продукта, давление, F0)
         Set tbStats = cht.Shapes.AddTextbox( _
             msoTextOrientationHorizontal, statsLeft, statsTop, 143, 4)
         With tbStats
@@ -2209,12 +2197,12 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             .Fill.ForeColor.RGB = RGB(250, 252, 255)
             .Fill.Solid
             .TextFrame2.TextRange.Text = ""
-            .Height = 70
+            .Height = 84
         End With
 
         ' Метки
         Set tbStatsLabels = cht.Shapes.AddTextbox( _
-            msoTextOrientationHorizontal, statsLeft + 4, statsTop + 3, 85, 64)
+            msoTextOrientationHorizontal, statsLeft + 4, statsTop + 3, 85, 78)
         With tbStatsLabels
             .Line.Visible = msoFalse
             .Fill.Visible = msoFalse
@@ -2223,7 +2211,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .Font.Size = 8
                 .Font.Bold = True
                 .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
-                .Text = "Макс. Т среды:" & Chr(10) & "Макс. Т продукта:" & Chr(10) & "Макс. давление:"
+                .Text = "Макс. Т среды:" & Chr(10) & "Макс. Т продукта:" & Chr(10) & _
+                        "Макс. давление:" & Chr(10) & "F0 стерил. эффект:"
             End With
             .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
             .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
@@ -2231,7 +2220,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' Значения
         Set tbStatsValues = cht.Shapes.AddTextbox( _
-            msoTextOrientationHorizontal, statsLeft + 89, statsTop + 3, 52, 64)
+            msoTextOrientationHorizontal, statsLeft + 89, statsTop + 3, 52, 78)
         With tbStatsValues
             .Line.Visible = msoFalse
             .Fill.Visible = msoFalse
@@ -2242,11 +2231,33 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                 .Text = Format(envMaxVal, "0.0") & " °C" & Chr(10) & _
                         Format(prodMaxVal, "0.0") & " °C" & Chr(10) & _
-                        Format(pressMaxVal, "0") & " мБар"
+                        Format(pressMaxVal, "0") & " мБар" & Chr(10) & _
+                        Format(f0MaxVal, "0.0") & " мин"
             End With
             .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
             .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
         End With
+
+        ' TextBox "F0=X.X мин" — правее плато F0, не перекрывает линии
+        If f0MaxVal > 0 And f0LastRi > 0 And nRows > 1 Then
+            f0TbX = paILeft + (f0LastRi - 1) * (paIWidth / (nRows - 1)) + 4
+            If f0TbX > paILeft + paIWidth - 55 Then f0TbX = paILeft + paIWidth - 55
+            Set tbF0 = cht.Shapes.AddTextbox( _
+                msoTextOrientationHorizontal, f0TbX, paITop + paIHeight - 22, 60, 14)
+            With tbF0
+                .Line.Visible = msoFalse
+                .Fill.Visible = msoFalse
+                With .TextFrame2.TextRange
+                    .Font.Name = "Calibri"
+                    .Font.Size = 8
+                    .Font.Bold = True
+                    .Font.Fill.ForeColor.RGB = RGB(30, 130, 30)
+                    .Text = "F0=" & Format(f0MaxVal, "0.0") & " мин"
+                End With
+                .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+                .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
+            End With
+        End If
 
         ' Табличка фаз — под легендой (легенда справа ~160pt от правого края)
         ' Координаты внутри ChartArea: X от правого края минус ширина таблички
