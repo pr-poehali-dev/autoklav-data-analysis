@@ -1498,6 +1498,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim f0MaxVal As Double : f0MaxVal = 0
     Dim pressMaxVal As Double : pressMaxVal = 0
+    envMaxVal = 0 : prodMaxVal = 0
 
     ' Проход 1: заполняем env/prod/tref/pressure, собираем сырые F0 во временный массив
     Dim arrF0raw() As Double
@@ -1516,6 +1517,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         arrPressure(ri) = IIf(IsNumeric(vPress), CDbl(vPress), 0)
         If arrF0raw(ri) > f0MaxVal Then f0MaxVal = arrF0raw(ri)
         If IsNumeric(arrPressure(ri)) And CDbl(arrPressure(ri)) > pressMaxVal Then pressMaxVal = CDbl(arrPressure(ri))
+        If arrEnv(ri)  > envMaxVal  Then envMaxVal  = arrEnv(ri)
+        If arrProd(ri) > prodMaxVal Then prodMaxVal = arrProd(ri)
     Next ri
 
     ' Проход 1б: обрезаем давление — ищем резкий сброс (падение >50% за 10 точек подряд)
@@ -1737,6 +1740,10 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim chartTitleStr As String
     Dim ctLeft As Double
     Dim ctTop  As Double
+    Dim sr3 As Series, pt3 As Point, ptCount3 As Long
+    Dim envMaxVal As Double, prodMaxVal As Double
+    Dim tbStats As Shape, tbStatsLabels As Shape, tbStatsValues As Shape
+    Dim statsLeft As Double, statsTop As Double
 
     ' Вычисляем дату заранее — нужна для заголовка графика
     cycDateVal = wsData.Cells(rStart, 1).Value
@@ -2020,6 +2027,24 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         End If
         On Error GoTo 0
 
+        ' --- Серия 3 (пунктирная, жёлтая): цифра "3" у левого края линии ---
+        On Error Resume Next
+        Set sr3 = .SeriesCollection(3)
+        ptCount3 = sr3.Points.Count
+        If ptCount3 > 0 Then
+            sr3.HasDataLabels = False
+            Set pt3 = sr3.Points(1)
+            pt3.HasDataLabel = True
+            With pt3.DataLabel
+                .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
+                .NumberFormat = "@" : .Characters.Text = "3"
+                .Font.Size = 18 : .Font.Bold = True
+                .Font.Color = RGB(160, 120, 0)
+                .Position = xlLabelPositionAbove
+            End With
+        End If
+        On Error GoTo 0
+
         ' --- Серия 4 (F0, зелёная): цифра "4" у первой точки F0 + "F0=X.X мин" на плато ---
         On Error Resume Next
         Set sr4 = .SeriesCollection(4)
@@ -2163,6 +2188,58 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .Font.Fill.ForeColor.RGB = RGB(40, 40, 140)
             End With
             .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 4
+            .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
+        End With
+
+        ' Табличка максимумов — над легендой справа
+        statsLeft = 637
+        statsTop  = 28
+
+        ' Рамка фон
+        Set tbStats = cht.Shapes.AddTextbox( _
+            msoTextOrientationHorizontal, statsLeft, statsTop, 143, 4)
+        With tbStats
+            .Line.Visible = msoTrue
+            .Line.ForeColor.RGB = RGB(180, 180, 190)
+            .Fill.ForeColor.RGB = RGB(250, 252, 255)
+            .Fill.Solid
+            .TextFrame2.TextRange.Text = ""
+            .Height = 70
+        End With
+
+        ' Метки
+        Set tbStatsLabels = cht.Shapes.AddTextbox( _
+            msoTextOrientationHorizontal, statsLeft + 4, statsTop + 3, 85, 64)
+        With tbStatsLabels
+            .Line.Visible = msoFalse
+            .Fill.Visible = msoFalse
+            With .TextFrame2.TextRange
+                .Font.Name = "Calibri"
+                .Font.Size = 8
+                .Font.Bold = True
+                .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
+                .Text = "Макс. Т среды:" & Chr(10) & "Макс. Т продукта:" & Chr(10) & "Макс. давление:"
+            End With
+            .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
+            .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
+        End With
+
+        ' Значения
+        Set tbStatsValues = cht.Shapes.AddTextbox( _
+            msoTextOrientationHorizontal, statsLeft + 89, statsTop + 3, 52, 64)
+        With tbStatsValues
+            .Line.Visible = msoFalse
+            .Fill.Visible = msoFalse
+            With .TextFrame2.TextRange
+                .Font.Name = "Calibri"
+                .Font.Size = 8
+                .Font.Bold = False
+                .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
+                .Text = Format(envMaxVal, "0.0") & " °C" & Chr(10) & _
+                        Format(prodMaxVal, "0.0") & " °C" & Chr(10) & _
+                        Format(pressMaxVal, "0") & " мБар"
+            End With
+            .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
             .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
         End With
 
