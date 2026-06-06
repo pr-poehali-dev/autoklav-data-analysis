@@ -1740,7 +1740,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim chartTitleStr As String
     Dim ctLeft As Double
     Dim ctTop  As Double
-    Dim sr3 As Series, pt3 As Point, ptCount3 As Long
+    Dim sr3 As Series, pt3 As Point, ptCount3 As Long, lbl3Pt As Long
     Dim tbStats As Shape, tbStatsLabels As Shape, tbStatsValues As Shape
     Dim statsLeft As Double, statsTop As Double
 
@@ -2032,7 +2032,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ptCount3 = sr3.Points.Count
         If ptCount3 > 0 Then
             sr3.HasDataLabels = False
-            Set pt3 = sr3.Points(1)
+            lbl3Pt = IIf(ptCount3 >= 5, 5, 1)
+            Set pt3 = sr3.Points(lbl3Pt)
             pt3.HasDataLabel = True
             With pt3.DataLabel
                 .ShowValue = False : .ShowSeriesName = False : .ShowLegendKey = False
