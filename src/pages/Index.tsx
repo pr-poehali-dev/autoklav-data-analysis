@@ -1643,6 +1643,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim ckStepPt  As Double
     Dim ckTki     As Long
     Dim ckTvB     As Variant
+    Dim ckAbsSec  As Double
+    Dim ckTotalSec As Long
     Dim ckAllMin  As Long
     Dim ckHH      As Long
     Dim ckMM      As Long
@@ -1840,19 +1842,14 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
             End With
 
-            ' --- Синяя метка: реальное время суток ---
-            ckTvB = wsData.Cells(rStart + ckTki - 1, 2).Value
+            ' --- Синяя метка: реальное время суток (через абс.секунды, чтобы правильно через полночь) ---
+            ckAbsSec = RowAbsSeconds(wsData, rStart + ckTki - 1)
             ckLabel = ""
-            If IsNumeric(ckTvB) Then
-                ckAllMin = Int(CDbl(ckTvB) * 1440)
-                ckHH     = Int(ckAllMin / 60) Mod 24
-                ckMM     = ckAllMin Mod 60
-                ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
-            ElseIf InStr(CStr(ckTvB), ":") > 0 Then
-                On Error Resume Next
-                ckTV2   = CDate(ckTvB)
-                ckLabel = Format(Hour(ckTV2), "00") & ":" & Format(Minute(ckTV2), "00")
-                On Error GoTo 0
+            If ckAbsSec > 0 Then
+                ckTotalSec = CLng(Int(ckAbsSec)) Mod 86400
+                ckHH    = CLng(Int(ckTotalSec / 3600))
+                ckMM    = CLng(Int((ckTotalSec Mod 3600) / 60))
+                ckLabel = Format(ckHH, "00") & ":" & Format(ckMM, "00")
             End If
             If ckLabel <> "" Then
                 Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPt, blueYpos, ckW, 12)
@@ -1892,14 +1889,14 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .TextFrame.MarginLeft = 0 : .TextFrame.MarginRight = 0
                     .TextFrame.MarginTop = 0  : .TextFrame.MarginBottom = 0
                 End With
-                ' Синяя последняя
-                ckTvB = wsData.Cells(rStart + nRows - 1, 2).Value
+                ' Синяя последняя (через абс.секунды — правильно через полночь)
+                ckAbsSec = RowAbsSeconds(wsData, rStart + nRows - 1)
                 ckLabel = ""
-                If IsNumeric(ckTvB) Then
-                    ckAllMin = Int(CDbl(ckTvB) * 1440)
-                    ckHH     = Int(ckAllMin / 60) Mod 24
-                    ckMM     = ckAllMin Mod 60
-                    ckLabel  = Format(ckHH, "00") & ":" & Format(ckMM, "00")
+                If ckAbsSec > 0 Then
+                    ckTotalSec = CLng(Int(ckAbsSec)) Mod 86400
+                    ckHH    = CLng(Int(ckTotalSec / 3600))
+                    ckMM    = CLng(Int((ckTotalSec Mod 3600) / 60))
+                    ckLabel = Format(ckHH, "00") & ":" & Format(ckMM, "00")
                 End If
                 If ckLabel <> "" Then
                     Set ckTb = .Shapes.AddTextbox(msoTextOrientationHorizontal, xPtLast, blueYpos, ckW, 12)
