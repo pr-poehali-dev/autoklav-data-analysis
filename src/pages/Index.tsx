@@ -1508,10 +1508,24 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     Dim tHoldMin As Double : tHoldMin = tRefC - 2#   ' порог удержания
 
+    ' Если tRefC завышен для данного цикла — найдём реальный максимум T среды
+    ' и опустим порог до tEnvMax - 2°C, чтобы фазы всегда определялись
+    Dim tEnvMaxPh As Double : tEnvMaxPh = 0
+    Dim phRi As Long
+    For phRi = rStart To rEnd
+        Dim tEnvChk As Variant : tEnvChk = wsData.Cells(phRi, 4).Value
+        If IsNumeric(tEnvChk) Then
+            If CDbl(tEnvChk) > tEnvMaxPh Then tEnvMaxPh = CDbl(tEnvChk)
+        End If
+    Next phRi
+    If tEnvMaxPh > 0 And tEnvMaxPh < tHoldMin Then
+        tHoldMin = tEnvMaxPh - 2#
+        If tHoldMin < 40# Then tHoldMin = 40#
+    End If
+
     ' Находим первую строку где T среды >= tHoldMin (конец нагрева)
     Dim rHoldStart As Long : rHoldStart = 0
     Dim rHoldEnd   As Long : rHoldEnd   = 0
-    Dim phRi As Long
     For phRi = rStart To rEnd
         Dim tEnvPh As Variant : tEnvPh = wsData.Cells(phRi, 4).Value
         If IsNumeric(tEnvPh) Then
@@ -1523,15 +1537,18 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Next phRi
 
     ' Считаем секунды каждой фазы
+    Dim secStart As Double : secStart = RowAbsSeconds(wsData, rStart)
+    Dim secEnd   As Double : secEnd   = RowAbsSeconds(wsData, rEnd)
     If rHoldStart > 0 Then
         ' Нагрев: rStart → rHoldStart
-        Dim secStart As Double : secStart = RowAbsSeconds(wsData, rStart)
         Dim secHoldS As Double : secHoldS = RowAbsSeconds(wsData, rHoldStart)
         Dim secHoldE As Double : secHoldE = RowAbsSeconds(wsData, rHoldEnd)
-        Dim secEnd   As Double : secEnd   = RowAbsSeconds(wsData, rEnd)
         If secHoldS > secStart Then phaseHeatSec = secHoldS - secStart
         If secHoldE > secHoldS Then phaseHoldSec = secHoldE - secHoldS
         If secEnd   > secHoldE Then phaseCoolSec = secEnd   - secHoldE
+    Else
+        ' Фаза удержания не найдена — весь цикл считаем нагревом
+        phaseHeatSec = secEnd - secStart
     End If
 
     ' Функция форматирования секунд → "Xч YYм"
@@ -1689,16 +1706,17 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
     ' --- Серия 4: F0 — кривая накопления стерилизационного эффекта ---
     ' Масштабируем F0 в нижнюю зону графика (0..F0_BAND°C на левой оси)
-    ' После последнего ненулевого значения — Empty (линия не падает вниз)
+    ' Используем ФИКСИРОВАННЫЙ максимум F0_MAX_NORM (30 мин) — чтобы маленькие
+    ' значения (0.7 мин) визуально отличались от больших (19.5 мин).
+    ' Если реальный F0 превышает F0_MAX_NORM — масштабируем по факту (не обрезаем).
     Const F0_BAND As Double = 20#
+    Const F0_MAX_NORM As Double = 30#   ' эталонный максимум шкалы (мин)
     Dim arrF0disp() As Variant
     ReDim arrF0disp(1 To nRows)
     Dim f0Scale As Double
-    If f0MaxVal > 0 Then
-        f0Scale = F0_BAND / f0MaxVal
-    Else
-        f0Scale = 1
-    End If
+    Dim f0ScaleBase As Double
+    f0ScaleBase = IIf(f0MaxVal > F0_MAX_NORM, f0MaxVal, F0_MAX_NORM)
+    f0Scale = F0_BAND / f0ScaleBase
 
     ' Находим последнюю точку где F0 > 0 — после неё ставим Empty
     Dim f0LastRi As Long : f0LastRi = 0
