@@ -166,10 +166,13 @@ Sub Autoclave_ProcessCSV()
     End If
 
     ' ----------------------------------------------------------------
-    ' Если выбран предыдущий файл — вставляем его данные ПЕРЕД основными
+    ' Если выбран предыдущий файл — вставляем только хвост последнего цикла
+    ' (строки от T>=40°C до конца предыдущего файла)
     ' ----------------------------------------------------------------
+    Dim prevInsertedRows As Long
+    prevInsertedRows = 0
     If prevFilePath <> "" Then
-        Call PrependPreviousCSV(wb, wsData, prevFilePath)
+        prevInsertedRows = PrependPreviousCSV(wb, wsData, prevFilePath)
         Dim prevName As String
         prevName = Mid(prevFilePath, InStrRev(prevFilePath, "\\") + 1)
         csvFileName = prevName & " + " & csvFileName
@@ -202,9 +205,9 @@ Sub Autoclave_ProcessCSV()
     trefInfoStr = "Стерилизация: Tref = 121.1C (ГОСТ)  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 8"
 
     Call PrepareReportSheet(wb, wsReport, csvFileName, trefInfoStr)
-    Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow)
+    Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow, prevInsertedRows)
     Call FormatReportSheet(wsReport)
-    Call BuildTemperatureChart(wb, wsData, lastRow, csvFileName)
+    Call BuildTemperatureChart(wb, wsData, lastRow, csvFileName, prevInsertedRows)
 
     ' ----------------------------------------------------------------
     ' Сохраняем только нужные листы (Data, F0_Report, График) в новый .xlsm
@@ -429,38 +432,35 @@ End Function
 ' Вставляет данные предыдущего CSV В НАЧАЛО листа Data (перед основными)
 ' Дата предыдущего файла остаётся как есть — она на сутки раньше
 '-------------------------------------------------------------
-Sub PrependPreviousCSV(wb As Workbook, wsData As Worksheet, prevFilePath As String)
+' Возвращает количество строк вставленных из предыдущего файла (0 если ничего не вставлено)
+Function PrependPreviousCSV(wb As Workbook, wsData As Worksheet, prevFilePath As String) As Long
+    PrependPreviousCSV = 0
+
     ' Читаем предыдущий CSV во временный массив
     Dim fileNum As Integer
     Dim lineText As String
-    Dim fields() As String
     Dim prevRows() As String
     Dim prevCount As Long
     prevCount = 0
 
     fileNum = FreeFile
     Open prevFilePath For Input As #fileNum
-    ReDim prevRows(1 To 50000)
+    ReDim prevRows(1 To 100000)
 
     Do While Not EOF(fileNum)
         Line Input #fileNum, lineText
         lineText = Trim(lineText)
-        If Len(lineText) = 0 Then GoTo SkipLine
-        If Left(lineText, 1) = "#" Then GoTo SkipLine
+        If Len(lineText) = 0 Then GoTo SkipLine2
+        If Left(lineText, 1) = "#" Then GoTo SkipLine2
         prevCount = prevCount + 1
         prevRows(prevCount) = lineText
-SkipLine:
+SkipLine2:
     Loop
     Close #fileNum
 
-    If prevCount = 0 Then Exit Sub
+    If prevCount = 0 Then Exit Function
 
-    ' Сдвигаем существующие данные вниз (кроме строки заголовков — строка 1)
-    Dim existingLastRow As Long
-    existingLastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
-
-    ' Вставляем пустые строки после заголовка для данных предыдущего файла
-    ' Первая строка prevRows может быть заголовком CSV — пропускаем
+    ' Определяем startIdx: пропускаем заголовок CSV если есть
     Dim startIdx As Long
     startIdx = 1
     Dim firstFields() As String
@@ -469,60 +469,173 @@ SkipLine:
     Else
         firstFields = Split(prevRows(1), ",")
     End If
-    ' Чистим кавычки первого поля для проверки
     Dim fp As String
     fp = Trim(firstFields(0))
     If Len(fp) >= 2 And Left(fp, 1) = Chr(34) Then fp = Mid(fp, 2, Len(fp) - 2)
-    ' Если первая строка — заголовок (не дата), пропускаем её
     If Not (fp Like "####/##/##") And Not IsDate(fp) Then startIdx = 2
 
-    Dim insertRows As Long
-    insertRows = prevCount - startIdx + 1
-    If insertRows <= 0 Then Exit Sub
+    ' ----------------------------------------------------------------
+    ' КЛЮЧЕВОЕ: из предыдущего файла берём только хвост —
+    ' строки начиная с первой где T среды (col 4 = D) >= 40°C
+    ' И при этом давление (col 6 = F) активно (>= 600 мБар) ИЛИ
+    ' идёт непрерывный нагрев до такого давления.
+    ' Алгоритм: находим последний цикл (последняя строка с P>=600),
+    ' затем идём назад до T среды < 40°C — это и есть наш хвост.
+    ' ----------------------------------------------------------------
 
-    wsData.Rows("2:" & (insertRows + 1)).Insert Shift:=xlDown
+    ' Шаг 1: парсим все строки предыдущего файла в простые массивы
+    Dim pCount As Long
+    pCount = prevCount - startIdx + 1
+    If pCount <= 0 Then Exit Function
 
-    ' Записываем строки предыдущего файла начиная со строки 2
-    Dim writeRow As Long
-    writeRow = 2
+    Dim pTenv() As Double   ' T среды (col 4)
+    Dim pPress() As Double  ' давление (col 6)
+    Dim pDate() As Double   ' дата (Excel days)
+    Dim pTime() As Double   ' время (Excel fraction)
+    ReDim pTenv(1 To pCount)
+    ReDim pPress(1 To pCount)
+    ReDim pDate(1 To pCount)
+    ReDim pTime(1 To pCount)
+
     Dim pi As Long
-    Dim pFields() As String
-    Dim pk As Integer
-
+    Dim idx As Long
+    idx = 0
     For pi = startIdx To prevCount
         lineText = prevRows(pi)
+        Dim pf() As String
         If InStr(lineText, ";") > 0 Then
-            pFields = Split(lineText, ";")
+            pf = Split(lineText, ";")
         Else
-            pFields = Split(lineText, ",")
+            pf = Split(lineText, ",")
         End If
 
-        ' Очищаем кавычки
-        For pk = 0 To UBound(pFields)
-            pFields(pk) = Trim(pFields(pk))
-            If Len(pFields(pk)) >= 2 Then
-                If Left(pFields(pk), 1) = Chr(34) And Right(pFields(pk), 1) = Chr(34) Then
-                    pFields(pk) = Mid(pFields(pk), 2, Len(pFields(pk)) - 2)
+        ' Очищаем кавычки всех полей
+        Dim pk As Integer
+        For pk = 0 To UBound(pf)
+            pf(pk) = Trim(pf(pk))
+            If Len(pf(pk)) >= 2 Then
+                If Left(pf(pk), 1) = Chr(34) And Right(pf(pk), 1) = Chr(34) Then
+                    pf(pk) = Mid(pf(pk), 2, Len(pf(pk)) - 2)
                 End If
             End If
         Next pk
 
+        idx = idx + 1
+
+        ' Дата (col 0)
+        If UBound(pf) >= 0 Then
+            Dim dCell As String : dCell = Trim(pf(0))
+            If InStr(dCell, "/") > 0 Then
+                Dim dp2() As String : dp2 = Split(dCell, "/")
+                If UBound(dp2) = 2 Then
+                    On Error Resume Next
+                    pDate(idx) = CDbl(DateSerial(CInt(dp2(0)), CInt(dp2(1)), CInt(dp2(2))))
+                    On Error GoTo 0
+                End If
+            ElseIf IsDate(dCell) Then
+                On Error Resume Next
+                pDate(idx) = CDbl(CDate(dCell))
+                On Error GoTo 0
+            End If
+        End If
+
+        ' Время (col 1)
+        If UBound(pf) >= 1 Then
+            Dim tCell As String : tCell = Trim(pf(1))
+            If InStr(tCell, ":") > 0 Then
+                On Error Resume Next
+                pTime(idx) = CDbl(TimeValue(tCell))
+                On Error GoTo 0
+            End If
+        End If
+
+        ' T среды (col 3 = 0-based → pf(3))
+        If UBound(pf) >= 3 Then
+            Dim envCell As String : envCell = Replace(Trim(pf(3)), ",", ".")
+            If IsNumeric(envCell) Then pTenv(idx) = CDbl(envCell)
+        End If
+
+        ' Давление (col 5 = 0-based → pf(5))
+        If UBound(pf) >= 5 Then
+            Dim prCell As String : prCell = Replace(Trim(pf(5)), ",", ".")
+            If IsNumeric(prCell) Then pPress(idx) = CDbl(prCell)
+        End If
+    Next pi
+
+    ' Шаг 2: находим последнюю строку с давлением >= 600 мБар (активный цикл)
+    Dim lastActiveRow As Long
+    lastActiveRow = 0
+    Dim ri As Long
+    For ri = pCount To 1 Step -1
+        If pPress(ri) >= 600# Then
+            lastActiveRow = ri
+            Exit For
+        End If
+    Next ri
+
+    ' Если в предыдущем файле нет активного цикла — ничего не вставляем
+    If lastActiveRow = 0 Then Exit Function
+
+    ' Шаг 3: от lastActiveRow идём назад до T среды < 40°C — это начало нагрева цикла
+    Dim cycTailStart As Long
+    cycTailStart = lastActiveRow
+    For ri = lastActiveRow - 1 To 1 Step -1
+        If pTenv(ri) >= 40# Then
+            cycTailStart = ri
+        Else
+            Exit For
+        End If
+    Next ri
+
+    ' Шаг 4: от lastActiveRow идём вперёд — берём ещё строки пока P > 0 или T > 40
+    ' (давление могло упасть раньше чем конец файла — берём хвост охлаждения)
+    Dim cycTailEnd As Long
+    cycTailEnd = pCount  ' берём до самого конца предыдущего файла
+
+    ' Шаг 5: вставляем строки cycTailStart..cycTailEnd перед данными основного файла
+    Dim insertRows As Long
+    insertRows = cycTailEnd - cycTailStart + 1
+    If insertRows <= 0 Then Exit Function
+
+    wsData.Rows("2:" & (insertRows + 1)).Insert Shift:=xlDown
+
+    ' Записываем данные
+    Dim writeRow As Long
+    writeRow = 2
+    For ri = cycTailStart To cycTailEnd
+        ' Восстанавливаем из предыдущего файла — повторно парсим нужную строку
+        lineText = prevRows(startIdx - 1 + ri)
+        Dim pFields2() As String
+        If InStr(lineText, ";") > 0 Then
+            pFields2 = Split(lineText, ";")
+        Else
+            pFields2 = Split(lineText, ",")
+        End If
+        Dim pk2 As Integer
+        For pk2 = 0 To UBound(pFields2)
+            pFields2(pk2) = Trim(pFields2(pk2))
+            If Len(pFields2(pk2)) >= 2 Then
+                If Left(pFields2(pk2), 1) = Chr(34) And Right(pFields2(pk2), 1) = Chr(34) Then
+                    pFields2(pk2) = Mid(pFields2(pk2), 2, Len(pFields2(pk2)) - 2)
+                End If
+            End If
+        Next pk2
+
         Dim pTotalCols As Integer
-        pTotalCols = UBound(pFields) + 1
+        pTotalCols = UBound(pFields2) + 1
         If pTotalCols > 17 Then pTotalCols = 17
 
         Dim pi2 As Integer
         For pi2 = 0 To pTotalCols - 1
             Dim pCell As String
-            pCell = Trim(pFields(pi2))
+            pCell = Trim(pFields2(pi2))
 
             Select Case pi2
-                Case 0 ' Дата YYYY/MM/DD
+                Case 0
                     If InStr(pCell, "/") > 0 Then
-                        Dim dp() As String
-                        dp = Split(pCell, "/")
-                        If UBound(dp) = 2 Then
-                            wsData.Cells(writeRow, 1).Value = DateSerial(CInt(dp(0)), CInt(dp(1)), CInt(dp(2)))
+                        Dim dpw() As String : dpw = Split(pCell, "/")
+                        If UBound(dpw) = 2 Then
+                            wsData.Cells(writeRow, 1).Value = DateSerial(CInt(dpw(0)), CInt(dpw(1)), CInt(dpw(2)))
                         Else
                             wsData.Cells(writeRow, 1).Value = pCell
                         End If
@@ -531,8 +644,7 @@ SkipLine:
                     Else
                         wsData.Cells(writeRow, 1).Value = pCell
                     End If
-
-                Case 1 ' Время HH:MM:SS
+                Case 1
                     If InStr(pCell, ":") > 0 Then
                         On Error Resume Next
                         wsData.Cells(writeRow, 2).Value = TimeValue(pCell)
@@ -540,7 +652,6 @@ SkipLine:
                     Else
                         wsData.Cells(writeRow, 2).Value = pCell
                     End If
-
                 Case Else
                     pCell = Replace(pCell, ",", ".")
                     If IsNumeric(pCell) Then
@@ -550,14 +661,14 @@ SkipLine:
                     End If
             End Select
         Next pi2
-
         writeRow = writeRow + 1
-    Next pi
+    Next ri
 
-    ' Форматируем добавленные строки
     wsData.Columns(1).NumberFormat = "dd.mm.yyyy"
     wsData.Columns(2).NumberFormat = "hh:mm:ss"
-End Sub
+
+    PrependPreviousCSV = insertRows
+End Function
 
 '-------------------------------------------------------------
 ' Дописывает данные следующего CSV В КОНЕЦ листа Data (после основных)
@@ -1004,7 +1115,7 @@ End Function
 '   Проход 1: определяем границы циклов и MAX(столбец K) → Tref
 '   Проход 2: считаем F0 = Σ 10^((T-Tref)/z) * Δt  (прямая формула Бигелоу)
 '-------------------------------------------------------------
-Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastRow As Long)
+Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastRow As Long, prevInsertedRows As Long)
     Const COL_DATE As Integer = 1
     Const COL_TIME As Integer = 2
     Const COL_TEMP_PROD As Integer = 5
@@ -1092,6 +1203,12 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
 
                 ' Пропускаем слишком короткие циклы — ложные срабатывания
                 If (realEnd - cyStart + 1) < MIN_CYCLE_ROWS Then
+                    inCyc = False : endCount = 0 : tKmaxP1 = 0
+                    GoTo P1Next
+                End If
+
+                ' Пропускаем цикл целиком из prevDay — он войдёт в следующий цикл основного файла
+                If (prevInsertedRows > 0) And (realEnd <= prevInsertedRows + 1) Then
                     inCyc = False : endCount = 0 : tKmaxP1 = 0
                     GoTo P1Next
                 End If
@@ -2280,7 +2397,7 @@ End Sub
 '-------------------------------------------------------------
 ' Строит графики по всем циклам на листе График
 '-------------------------------------------------------------
-Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, csvFileName As String)
+Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, csvFileName As String, prevInsertedRows As Long)
     Dim ws As Worksheet
 
     Application.DisplayAlerts = False
@@ -2362,21 +2479,28 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
 
                 ' Не строить график если T продукта не поднималась до 100°C — прогрев без стерилизации
                 If tProdMaxCy >= T_PEAK_STERIL Then
-                    cycIdx = cycIdx + 1
-                    ' Захватываем нагрев ДО начала давления — ищем строки назад где T среды >= 40°C
-                    Dim cyStartExt As Long : cyStartExt = cyStart
-                    Dim backRow As Long
-                    For backRow = cyStart - 1 To 2 Step -1
-                        Dim bTv As Variant : bTv = wsData.Cells(backRow, 4).Value
-                        If IsNumeric(bTv) Then
-                            If CDbl(bTv) < 40# Then Exit For
-                        Else
-                            Exit For
-                        End If
-                        cyStartExt = backRow
-                    Next backRow
-                    Call BuildOneCycleChart(ws, wsData, cyStartExt, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
-                    topOffset = topOffset + 530  ' CHART_H(510) + 20pt отступ между графиками
+                    ' Пропускаем цикл который целиком принадлежит prevDay-данным:
+                    ' он будет объединён со следующим циклом через backRow-поиск
+                    Dim isFullyInPrev As Boolean
+                    isFullyInPrev = (prevInsertedRows > 0) And (cyEnd <= prevInsertedRows + 1)
+                    If Not isFullyInPrev Then
+                        cycIdx = cycIdx + 1
+                        ' Захватываем нагрев ДО начала давления — ищем строки назад где T среды >= 40°C
+                        ' (если prevInsertedRows > 0 — backRow уйдёт в предыдущий файл автоматически)
+                        Dim cyStartExt As Long : cyStartExt = cyStart
+                        Dim backRow As Long
+                        For backRow = cyStart - 1 To 2 Step -1
+                            Dim bTv As Variant : bTv = wsData.Cells(backRow, 4).Value
+                            If IsNumeric(bTv) Then
+                                If CDbl(bTv) < 40# Then Exit For
+                            Else
+                                Exit For
+                            End If
+                            cyStartExt = backRow
+                        Next backRow
+                        Call BuildOneCycleChart(ws, wsData, cyStartExt, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
+                        topOffset = topOffset + 530  ' CHART_H(510) + 20pt отступ между графиками
+                    End If
                 End If
 
                 inCyc = False : endCntCy = 0 : tKmaxCy = 0 : tProdMaxCy = 0
