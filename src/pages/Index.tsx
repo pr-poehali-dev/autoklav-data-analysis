@@ -2158,7 +2158,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .NumberFormat = "@" : .Characters.Text = "5"
                     .Font.Size = 18 : .Font.Bold = True
                     .Font.Color = RGB(130, 70, 20)
-                    .Position = xlLabelPositionAbove
+                    .Position = xlLabelPositionRight
                 End With
             End If
         End If
@@ -2365,7 +2365,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .Font.Bold = True
                     .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                     If phaseCoolSec > 0 Then
-                        .Text = "Нагрев:" & Chr(10) & "Удержание:" & Chr(10) & "Остывание:" & Chr(10) & Chr(10) & "Общее время:"
+                        .Text = "Нагрев:" & Chr(10) & "Удержание:" & Chr(10) & "Охлаждение:" & Chr(10) & Chr(10) & "Общее время:"
                     Else
                         .Text = "Нагрев:" & Chr(10) & "Удержание:" & Chr(10) & Chr(10) & "Общее время:"
                     End If
