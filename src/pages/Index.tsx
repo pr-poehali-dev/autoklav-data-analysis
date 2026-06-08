@@ -1644,7 +1644,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim ckTki     As Long
     Dim ckTvB     As Variant
     Dim ckAbsSec  As Double
-    Dim ckTotalSec As Long
+    Dim ckTotalSec As Double
     Dim ckAllMin  As Long
     Dim ckHH      As Long
     Dim ckMM      As Long
@@ -1846,9 +1846,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
             ckAbsSec = RowAbsSeconds(wsData, rStart + ckTki - 1)
             ckLabel = ""
             If ckAbsSec > 0 Then
-                ckTotalSec = CLng(Int(ckAbsSec)) Mod 86400
+                ckTotalSec = Int(ckAbsSec) - Int(Int(ckAbsSec) / 86400) * 86400
                 ckHH    = CLng(Int(ckTotalSec / 3600))
-                ckMM    = CLng(Int((ckTotalSec Mod 3600) / 60))
+                ckMM    = CLng(Int((ckTotalSec - ckHH * 3600) / 60))
                 ckLabel = Format(ckHH, "00") & ":" & Format(ckMM, "00")
             End If
             If ckLabel <> "" Then
@@ -1893,9 +1893,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 ckAbsSec = RowAbsSeconds(wsData, rStart + nRows - 1)
                 ckLabel = ""
                 If ckAbsSec > 0 Then
-                    ckTotalSec = CLng(Int(ckAbsSec)) Mod 86400
+                    ckTotalSec = Int(ckAbsSec) - Int(Int(ckAbsSec) / 86400) * 86400
                     ckHH    = CLng(Int(ckTotalSec / 3600))
-                    ckMM    = CLng(Int((ckTotalSec Mod 3600) / 60))
+                    ckMM    = CLng(Int((ckTotalSec - ckHH * 3600) / 60))
                     ckLabel = Format(ckHH, "00") & ":" & Format(ckMM, "00")
                 End If
                 If ckLabel <> "" Then
