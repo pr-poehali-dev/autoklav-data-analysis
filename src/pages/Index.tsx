@@ -1475,9 +1475,9 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Const CHART_W As Long = 790   ' ширина графика (pt)
     Const CHART_H As Long = 510   ' высота графика (pt) — увеличена на 20pt для двух шкал времени внизу
 
-    ' Добавляем ~10 минут строк после конца цикла чтобы было видно спуск температуры
-    ' CSV пишется каждые ~10 сек → 10 мин = ~60 строк
-    Const EXTRA_ROWS As Long = 60
+    ' Добавляем ~30 минут строк после конца цикла чтобы было видно спуск температуры
+    ' CSV пишется каждые ~10 сек → 30 мин = ~180 строк
+    Const EXTRA_ROWS As Long = 180
     Dim rEndExt As Long
     rEndExt = rEnd + EXTRA_ROWS
     If rEndExt > wsData.UsedRange.Rows.Count Then rEndExt = wsData.UsedRange.Rows.Count
@@ -2501,7 +2501,21 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 End If
 
                 ' Не строить график если T продукта не поднималась до 100°C — прогрев без стерилизации
-                If tProdMaxCy >= T_PEAK_STERIL Then
+                ' Исключение: если цикл начался в prevDay-данных — tProdMaxCy могло не набраться,
+                ' поэтому дополнительно проверяем максимум T продукта по всему диапазону cyStart..cyEnd
+                Dim tProdCheck As Double : tProdCheck = tProdMaxCy
+                If tProdCheck < T_PEAK_STERIL And prevInsertedRows > 0 And cyStart <= prevInsertedRows + 1 Then
+                    ' Цикл начался в предыдущем файле — пересчитываем макс T продукта по всему диапазону
+                    Dim scanRow As Long
+                    For scanRow = 2 To cyEnd
+                        Dim scanTv As Variant : scanTv = wsData.Cells(scanRow, 5).Value
+                        If IsNumeric(scanTv) Then
+                            If CDbl(scanTv) > tProdCheck Then tProdCheck = CDbl(scanTv)
+                        End If
+                    Next scanRow
+                End If
+
+                If tProdCheck >= T_PEAK_STERIL Then
                     ' Пропускаем цикл который целиком принадлежит prevDay-данным:
                     ' он будет объединён со следующим циклом через backRow-поиск
                     Dim isFullyInPrev As Boolean
@@ -2521,6 +2535,8 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                             End If
                             cyStartExt = backRow
                         Next backRow
+                        ' Если цикл начался в prevDay — cyStartExt не должен уходить раньше строки 2
+                        If cyStartExt < 2 Then cyStartExt = 2
                         Call BuildOneCycleChart(ws, wsData, cyStartExt, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
                         topOffset = topOffset + 530  ' CHART_H(510) + 20pt отступ между графиками
                     End If
