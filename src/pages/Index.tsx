@@ -864,16 +864,12 @@ Sub PrepareReportSheet(wb As Workbook, ByRef wsReport As Worksheet, csvFileName 
         .Cells(1, 1).Font.Color = RGB(0, 100, 180)
         .Range("A1:H1").Merge
 
-        .Cells(2, 1).Value = "Файл: " & csvFileName & "   |   Дата формирования: " & Format(Now, "dd.mm.yyyy hh:mm")
+        .Cells(2, 1).Value = "Файл: " & csvFileName
         .Cells(2, 1).Font.Color = RGB(100, 120, 140)
         .Cells(2, 1).Font.Bold = True
         .Range("A2:H2").Merge
 
-        .Cells(3, 1).Value = trefInfo
-        .Cells(3, 1).Font.Color = RGB(100, 120, 140)
-        .Range("A3:H3").Merge
-
-        .Rows(4).RowHeight = 6
+        .Rows(3).RowHeight = 4
 
         ' ===== ТАБЛИЦА 1: основные данные (8 столбцов, умещается на А4) =====
         Dim h1(1 To 7) As String
@@ -1296,54 +1292,7 @@ Sub AddSummaryRow(wsReport As Worksheet, reportRow As Integer, totalCycles As In
         .Range(.Cells(reportRow, 1), .Cells(reportRow, 7)).Borders(xlEdgeTop).Weight = xlMedium
     End With
 
-    ' ===== ТАБЛИЦА 2: программа/примечания =====
-    ' Пустая строка-разделитель
-    reportRow = reportRow + 2
 
-    With wsReport
-        .Cells(reportRow, 1).Value = "Цикл"
-        .Cells(reportRow, 2).Value = "Результат"
-        .Cells(reportRow, 3).Value = "Программа / Примечание"
-        Dim h As Integer
-        For h = 1 To 3
-            .Cells(reportRow, h).Font.Bold = True
-            .Cells(reportRow, h).Font.Color = RGB(255, 255, 255)
-            .Cells(reportRow, h).Interior.Color = RGB(30, 80, 130)
-            .Cells(reportRow, h).HorizontalAlignment = xlCenter
-        Next h
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Borders(xlEdgeBottom).LineStyle = xlContinuous
-        .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Borders(xlEdgeBottom).Color = RGB(0, 120, 200)
-    End With
-    reportRow = reportRow + 1
-
-    Dim ni As Integer
-    For ni = 1 To cycleCount
-        With wsReport
-            .Cells(reportRow, 1).Value = ni
-            .Cells(reportRow, 1).HorizontalAlignment = xlCenter
-            .Cells(reportRow, 2).Value = resultArr(ni)
-            .Cells(reportRow, 2).Interior.Color = resultColorArr(ni)
-            ' Белый шрифт на красном, чёрный — на зелёном/жёлтом/сером
-            If resultColorArr(ni) = RGB(210, 30, 30) Then
-                .Cells(reportRow, 2).Font.Color = RGB(255, 255, 255)
-            Else
-                .Cells(reportRow, 2).Font.Color = RGB(0, 0, 0)
-            End If
-            .Cells(reportRow, 2).Font.Bold = True
-            .Cells(reportRow, 3).Value = noteArr(ni)
-            If ni Mod 2 = 0 Then
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 1)).Interior.Color = RGB(240, 246, 252)
-                .Range(.Cells(reportRow, 3), .Cells(reportRow, 3)).Interior.Color = RGB(240, 246, 252)
-            Else
-                .Range(.Cells(reportRow, 1), .Cells(reportRow, 1)).Interior.Color = RGB(255, 255, 255)
-                .Range(.Cells(reportRow, 3), .Cells(reportRow, 3)).Interior.Color = RGB(255, 255, 255)
-            End If
-            .Range(.Cells(reportRow, 1), .Cells(reportRow, 3)).Font.Color = RGB(30, 30, 30)
-            .Cells(reportRow, 2).Font.Color = resultColorArr(ni)
-            .Cells(reportRow, 2).Font.Bold = True
-        End With
-        reportRow = reportRow + 1
-    Next ni
 End Sub
 
 '-------------------------------------------------------------
