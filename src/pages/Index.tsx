@@ -2181,7 +2181,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                     .NumberFormat = "@" : .Characters.Text = "4"
                     .Font.Size = 18 : .Font.Bold = True
                     .Font.Color = RGB(40, 140, 40)
-                    .Position = xlLabelPositionBelow
+                    .Position = xlLabelPositionAbove
                 End With
             End If
         End If
