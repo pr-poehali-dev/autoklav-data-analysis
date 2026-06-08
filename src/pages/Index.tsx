@@ -1910,29 +1910,17 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
 
         ' === Ось X: скрываем встроенные метки, рисуем ОБЕ шкалы вручную через TextBox ===
         ' Так обе строки всегда точно под линиями сетки и не наезжают друг на друга
-        ' Шаг сетки кратен 10 минутам реального времени
-        Dim secFirst As Double : secFirst = RowAbsSeconds(wsData, rStart)
-        Dim secLast  As Double : secLast  = RowAbsSeconds(wsData, rStart + nRows - 1)
-        Dim totalSec As Double : totalSec = secLast - secFirst
-        If totalSec < 1 Then totalSec = nRows * 10   ' fallback: ~10 сек на строку
-
-        ' Средний интервал между строками в секундах
-        Dim secPerRow As Double : secPerRow = totalSec / (nRows - 1)
-        If secPerRow < 0.1 Then secPerRow = 10
-
-        ' Целевое количество делений на оси — от 8 до 20
-        ' Подбираем шаг кратный 10 мин (600 сек), чтобы метки падали на круглые минуты
-        Dim targetDivisions As Long : targetDivisions = 12
-        Dim stepSec As Double : stepSec = totalSec / targetDivisions
-
-        ' Округляем шаг до ближайшего кратного 10 минутам
-        Const SNAP_SEC As Long = 600   ' 10 минут
-        Dim snappedStepSec As Long
-        snappedStepSec = CLng(Int(stepSec / SNAP_SEC + 0.5)) * SNAP_SEC
-        If snappedStepSec < SNAP_SEC Then snappedStepSec = SNAP_SEC
-
-        ' Переводим шаг в строки
-        tickStep = CLng(snappedStepSec / secPerRow)
+        If nRows > 3000 Then
+            tickStep = CLng(nRows / 25)
+        ElseIf nRows > 600 Then
+            tickStep = CLng(nRows / 20)
+        ElseIf nRows > 120 Then
+            tickStep = CLng(nRows / 15)
+        ElseIf nRows > 30 Then
+            tickStep = CLng(nRows / 10)
+        Else
+            tickStep = 1
+        End If
         If tickStep < 1 Then tickStep = 1
 
         With .Axes(xlCategory)
@@ -1974,24 +1962,8 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         ' Шкала 2 (серая, длительность цикла): на 18pt ниже синей — с зазором между ними
         grayYpos = paITop + paIHeight + 21
 
-        ' Находим первую строку, чья абсолютная секунда кратна snappedStepSec —
-        ' чтобы метки шкалы всегда начинались на круглой 10-минутке (23:10, 23:20, ...)
-        Dim ckStartRi As Long : ckStartRi = 1
-        If snappedStepSec > 0 And secFirst > 0 Then
-            Dim firstSnapSec As Double
-            firstSnapSec = (Int(secFirst / snappedStepSec) + 1) * snappedStepSec
-            Dim scanRi As Long
-            For scanRi = 1 To nRows
-                Dim scanSec As Double : scanSec = RowAbsSeconds(wsData, rStart + scanRi - 1)
-                If scanSec >= firstSnapSec Then
-                    ckStartRi = scanRi
-                    Exit For
-                End If
-            Next scanRi
-        End If
-
         ckLastAdded = 0
-        For ckTki = ckStartRi To nRows Step tickStep
+        For ckTki = 1 To nRows Step tickStep
             xPt = paILeft + (ckTki - 1) * (paIWidth / (nRows - 1)) - ckW / 2
 
             ' --- Серая метка: длительность от начала цикла (00:00, 00:11, ...) ---
