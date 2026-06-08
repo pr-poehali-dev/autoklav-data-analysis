@@ -586,6 +586,11 @@ SkipLine2:
             Exit For
         End If
     Next ri
+    ' Берём ещё ~5 минут запаса ДО начала нагрева (CSV ~10 сек/строка → 30 строк = 5 мин)
+    ' чтобы на графике была видна точка начала нагрева с небольшим отступом слева
+    Const PREPEND_EXTRA As Long = 30
+    cycTailStart = cycTailStart - PREPEND_EXTRA
+    If cycTailStart < 1 Then cycTailStart = 1
 
     ' Шаг 4: от lastActiveRow идём вперёд — берём ещё строки пока P > 0 или T > 40
     ' (давление могло упасть раньше чем конец файла — берём хвост охлаждения)
