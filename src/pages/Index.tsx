@@ -2496,7 +2496,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
             Dim tkRvCy As Variant : tkRvCy = wsData.Cells(p, 11).Value
             If IsNumeric(tkRvCy) Then
                 Dim tkVCy As Double : tkVCy = CDbl(tkRvCy)
-                If tkVCy >= 100# And tkVCy <= 130# And tkVCy > tKmaxCy Then tKmaxCy = tkVCy
+                If tkVCy >= 50# And tkVCy <= 150# And tkVCy > tKmaxCy Then tKmaxCy = tkVCy
             End If
             ' MAX T продукта (столбец E)
             Dim tpRvCy As Variant : tpRvCy = wsData.Cells(p, 5).Value
@@ -2517,13 +2517,23 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                 cyEnd = IIf(endCntCy >= CY_END_CNT, p - endCntCy + 1, p)
                 If cyEnd < cyStart Then cyEnd = cyStart
 
+                ' tRefCy — горизонталь "заданной программы" на графике.
+                ' Берём реальный максимум T продукта за цикл и округляем вверх до ближайшего
+                ' кратного 5°C, чтобы пунктир всегда был чуть выше фактической кривой.
+                ' Если колонка K (заданная T) дала реальное значение — используем его.
                 Dim tRefCy As Double
-                If tKmaxCy >= 118# Then
-                    tRefCy = 120#
-                ElseIf tKmaxCy >= 100# Then
-                    tRefCy = 115#
+                If tKmaxCy >= 90# Then
+                    ' Колонка K содержит реальное значение заданной T — используем напрямую
+                    tRefCy = tKmaxCy
                 Else
-                    tRefCy = T_REF
+                    ' Колонка K не информативна — строим пунктир по фактическому максимуму T продукта,
+                    ' округлённому вверх до кратного 5°C
+                    Dim tBase As Double : tBase = tProdMaxCy
+                    If tBase < 1 Then tBase = T_REF
+                    tRefCy = (Int(tBase / 5#) + 1) * 5#
+                    ' Не выходим за разумные рамки
+                    If tRefCy > 135# Then tRefCy = 135#
+                    If tRefCy < 90#  Then tRefCy = 90#
                 End If
 
                 ' Не строить график если T продукта не поднималась до 100°C — прогрев без стерилизации
