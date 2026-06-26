@@ -277,9 +277,16 @@ Function NeedsPreviousFile(wsData As Worksheet) As Boolean
     lastR = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
     If lastR < 3 Then Exit Function
 
-    ' Смотрим первые 10 строк данных
+    ' Смотрим первые ~300 строк (~30 мин данных при записи каждые 10 сек).
+    ' Порог времени: до 02:00 (0.0833 дробь Excel).
+    ' Это покрывает случай когда файл начинается в 00:00 при горячей температуре —
+    ' цикл начался в файле предыдущих суток.
     Dim r As Long
-    For r = 2 To IIf(lastR < 11, lastR, 11)
+    Dim endR As Long
+    endR = IIf(lastR < 302, lastR, 302)
+
+    Dim hotEarlyCount As Long: hotEarlyCount = 0
+    For r = 2 To endR
         Dim tVal As Variant
         tVal = wsData.Cells(r, 5).Value  ' столбец E — температура продукта
         If Not IsNumeric(tVal) Then GoTo NextCheck
@@ -301,10 +308,17 @@ Function NeedsPreviousFile(wsData As Worksheet) As Boolean
             On Error GoTo 0
         End If
 
-        ' Время до 5 минут от полуночи (< 0.0035 в дробях Excel = ~5 мин)
-        If tempCheck > 40 And timeDbl < 0.0035 Then
-            NeedsPreviousFile = True
-            Exit Function
+        ' Температура горячая и время раннее (до 02:00 = 0.0833)
+        ' → цикл начался в предыдущих сутках
+        If tempCheck > 40 And timeDbl < 0.0833 Then
+            hotEarlyCount = hotEarlyCount + 1
+            If hotEarlyCount >= 3 Then
+                NeedsPreviousFile = True
+                Exit Function
+            End If
+        Else
+            ' Если встретили нормальное время — дальше не смотрим
+            If timeDbl >= 0.0833 And timeDbl <= 0.9167 Then Exit For
         End If
 NextCheck:
     Next r
@@ -320,12 +334,18 @@ Function NeedsNextFile(wsData As Worksheet) As Boolean
     lastR = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
     If lastR < 3 Then Exit Function
 
-    ' Смотрим последние 10 строк данных
+    ' Смотрим последние ~300 строк (~30 мин данных при записи каждые 10 сек).
+    ' Порог времени: после 22:00 (0.9167 дробь Excel).
+    ' Это покрывает случай когда файл заканчивается в 23:45 при горячей температуре —
+    ' цикл продолжается в файле следующих суток.
     Dim r As Long
     Dim startR As Long
-    startR = lastR - 10
+    startR = lastR - 300
     If startR < 2 Then startR = 2
 
+    ' Ищем: есть ли в конце файла горячие строки (T > 40) при времени > 22:00
+    ' Дополнительно проверяем давление (столбец F) — если цикл активен в конце файла
+    Dim hotLateCount As Long: hotLateCount = 0
     For r = lastR To startR Step -1
         Dim tVal As Variant
         tVal = wsData.Cells(r, 5).Value  ' столбец E — температура продукта
@@ -346,10 +366,17 @@ Function NeedsNextFile(wsData As Worksheet) As Boolean
             On Error GoTo 0
         End If
 
-        ' Время после 23:55 (> 0.9965 в дробях Excel) и температура горячая
-        If tempCheck > 40 And timeDbl > 0.9965 Then
-            NeedsNextFile = True
-            Exit Function
+        ' Температура горячая и время вечернее (после 22:00 = 0.9167)
+        ' → цикл явно не завершён до конца суток, нужен следующий файл
+        If tempCheck > 40 And timeDbl > 0.9167 Then
+            hotLateCount = hotLateCount + 1
+            ' Достаточно 3 таких строк подряд чтобы считать это не случайностью
+            If hotLateCount >= 3 Then
+                NeedsNextFile = True
+                Exit Function
+            End If
+        Else
+            hotLateCount = 0
         End If
 NextCheck2:
     Next r
