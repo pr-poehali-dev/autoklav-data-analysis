@@ -1468,7 +1468,8 @@ End Sub
 '-------------------------------------------------------------
 Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     rStart As Long, rEnd As Long, cycleIdx As Integer, _
-    tRefC As Double, topOffset As Long, csvFileName As String)
+    tRefC As Double, topOffset As Long, csvFileName As String, _
+    prevInsRows As Long)
 
     ' Размер под печать A4 (portrait 96dpi ≈ 794×1123px, поля ~60px)
     ' Один график = одна страница: высота не более ~490pt чтобы не залезать на следующий лист
@@ -1837,8 +1838,20 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim f0TbX As Double
     Dim statsLeft As Double, statsTop As Double
 
-    ' Вычисляем дату заранее — нужна для заголовка графика
-    cycDateVal = wsData.Cells(rStart, 1).Value
+    ' Вычисляем дату заранее — нужна для заголовка графика.
+    ' Если rStart находится в строках предыдущего файла (prevInsRows вставленных строк),
+    ' берём дату из первой строки ОСНОВНОГО файла (prevInsRows + 2),
+    ' чтобы заголовок показывал дату текущего файла, а не предыдущего.
+    Dim dateSourceRow As Long
+    If prevInsRows > 0 And rStart <= prevInsRows + 1 Then
+        dateSourceRow = prevInsRows + 2  ' первая строка основного файла
+    Else
+        dateSourceRow = rStart
+    End If
+    If dateSourceRow < 2 Then dateSourceRow = 2
+    If dateSourceRow > rEnd Then dateSourceRow = rStart
+
+    cycDateVal = wsData.Cells(dateSourceRow, 1).Value
     If IsDate(cycDateVal) Then
         cycDateStr = Format(CDate(cycDateVal), "DD.MM.YYYY")
     ElseIf IsNumeric(cycDateVal) And CLng(CDbl(cycDateVal)) > 1000 Then
@@ -2573,7 +2586,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
                         Next backRow
                         ' Если цикл начался в prevDay — cyStartExt не должен уходить раньше строки 2
                         If cyStartExt < 2 Then cyStartExt = 2
-                        Call BuildOneCycleChart(ws, wsData, cyStartExt, cyEnd, cycIdx, tRefCy, topOffset, csvFileName)
+                        Call BuildOneCycleChart(ws, wsData, cyStartExt, cyEnd, cycIdx, tRefCy, topOffset, csvFileName, prevInsertedRows)
                         topOffset = topOffset + 530  ' CHART_H(510) + 20pt отступ между графиками
                     End If
                 End If
