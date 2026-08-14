@@ -1887,8 +1887,30 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
         cycDateStr = CStr(cycDateVal)
     End If
 
-    ' Заголовок: дата + Термограмма цикл N
-    chartTitleStr = cycDateStr & "     Термограмма  цикл " & cycleIdx
+    ' Дата конца графика (столбец A в строке rEndExt — с учётом хвоста охлаждения,
+    ' т.к. именно до этой строки реально нарисован график) — если отличается от даты
+    ' начала, показываем диапазон "ДД.ММ.ГГГГ-ДД.ММ.ГГГГ" в заголовке, чтобы было
+    ' понятно что цикл переходит через полночь на следующие сутки.
+    Dim cycEndDateVal As Variant
+    Dim cycEndDateStr As String
+    cycEndDateVal = wsData.Cells(rEndExt, 1).Value
+    If IsDate(cycEndDateVal) Then
+        cycEndDateStr = Format(CDate(cycEndDateVal), "DD.MM.YYYY")
+    ElseIf IsNumeric(cycEndDateVal) And CLng(CDbl(cycEndDateVal)) > 1000 Then
+        cycEndDateStr = Format(CDate(CDbl(cycEndDateVal)), "DD.MM.YYYY")
+    Else
+        cycEndDateStr = cycDateStr
+    End If
+
+    Dim cycDateRangeStr As String
+    If cycEndDateStr <> "" And cycEndDateStr <> cycDateStr Then
+        cycDateRangeStr = cycDateStr & "-" & cycEndDateStr
+    Else
+        cycDateRangeStr = cycDateStr
+    End If
+
+    ' Заголовок: дата (или диапазон дат) + Термограмма цикл N
+    chartTitleStr = cycDateRangeStr & "     Термограмма  цикл " & cycleIdx
 
     With cht
         .HasTitle = True
