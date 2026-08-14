@@ -1866,15 +1866,11 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
     Dim statsLeft As Double, statsTop As Double
 
     ' Вычисляем дату заранее — нужна для заголовка графика.
-    ' Если rStart находится в строках предыдущего файла (prevInsRows вставленных строк),
-    ' берём дату из первой строки ОСНОВНОГО файла (prevInsRows + 2),
-    ' чтобы заголовок показывал дату текущего файла, а не предыдущего.
+    ' Берём РЕАЛЬНУЮ дату строки rStart (даже если цикл начался в строках
+    ' предыдущего файла — это правильно, т.к. ниже формируется диапазон дат
+    ' "ДД.ММ.ГГГГ-ДД.ММ.ГГГГ" если цикл переходит через полночь).
     Dim dateSourceRow As Long
-    If prevInsRows > 0 And rStart <= prevInsRows + 1 Then
-        dateSourceRow = prevInsRows + 2  ' первая строка основного файла
-    Else
-        dateSourceRow = rStart
-    End If
+    dateSourceRow = rStart
     If dateSourceRow < 2 Then dateSourceRow = 2
     If dateSourceRow > rEnd Then dateSourceRow = rStart
 
