@@ -347,6 +347,28 @@ Sub Autoclave_CorrectProductTemp()
         End If
     Next i
 
+    Dim jmp As Double, kk As Long, jj As Long
+    Const BLEND_ROWS As Long = 30
+    For i = 2 To nR
+        If isCool(i) And Not isCool(i - 1) Then
+            If VarType(arrE(i, 1)) = vbDouble And VarType(arrE(i - 1, 1)) = vbDouble Then
+                jmp = arrE(i, 1) - arrE(i - 1, 1)
+                If jmp > 0 Then
+                    For kk = 0 To BLEND_ROWS - 1
+                        jj = i + kk
+                        If jj > nR Then Exit For
+                        If Not isCool(jj) Then Exit For
+                        If VarType(arrE(jj, 1)) = vbDouble Then
+                            If IsEmpty(arrS(jj, 1)) Then arrS(jj, 1) = arrE(jj, 1)
+                            arrE(jj, 1) = arrE(jj, 1) - jmp * (1# - kk / BLEND_ROWS)
+                            changedCnt = changedCnt + 1
+                        End If
+                    Next kk
+                End If
+            End If
+        End If
+    Next i
+
     If changedCnt = 0 Then
         Application.Calculation = xlCalculationAutomatic
         Application.ScreenUpdating = True
