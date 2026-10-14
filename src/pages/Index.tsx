@@ -327,17 +327,21 @@ Sub Autoclave_CorrectProductTemp()
 
     Dim isCool() As Boolean
     ReDim isCool(1 To nR)
-    Call MarkCoolingRows(wsData, lastRow, isCool)
+    Dim isHeat() As Boolean
+    ReDim isHeat(1 To nR)
+    Call MarkCoolingRows(wsData, lastRow, isCool, isHeat)
 
     Dim i As Long
     Dim changedCnt As Long : changedCnt = 0
     For i = 1 To nR
+        If Not IsEmpty(arrS(i, 1)) Then
+            arrE(i, 1) = arrS(i, 1)
+            arrS(i, 1) = Empty
+        End If
+    Next i
+    For i = 1 To nR
         If isCool(i) Then
-            If Not IsEmpty(arrS(i, 1)) Then
-                arrE(i, 1) = arrS(i, 1)
-                arrS(i, 1) = Empty
-                changedCnt = changedCnt + 1
-            End If
+            ' охлаждение не трогаем
         ElseIf VarType(arrD(i, 1)) = vbDouble And VarType(arrE(i, 1)) = vbDouble Then
             If arrE(i, 1) > arrD(i, 1) Then
                 If IsEmpty(arrS(i, 1)) Then arrS(i, 1) = arrE(i, 1)
@@ -346,6 +350,105 @@ Sub Autoclave_CorrectProductTemp()
             End If
         End If
     Next i
+
+    ' ----- Нагрев: убираем провалы/изгибы красной линии (T продукта при нагреве не должна падать) -----
+    Dim hA As Long, hB As Long, hPk As Long, hI As Long, hJ As Long, hM As Long
+    Dim hMax As Double, hLo As Long, hHi As Long, hQ As Long, hC As Long
+    Dim hSum As Double, hOk As Boolean
+    Dim hOrig() As Double
+    Const HEAT_TOL As Double = 0.01
+    Const HEAT_SMOOTH As Long = 8
+    hA = 1
+    Do While hA <= nR
+        If Not isHeat(hA) Then
+            hA = hA + 1
+        Else
+            hB = hA
+            Do While hB < nR
+                If Not isHeat(hB + 1) Then Exit Do
+                hB = hB + 1
+            Loop
+
+            hMax = -999
+            hOk = True
+            For hI = hA To hB
+                If VarType(arrE(hI, 1)) <> vbDouble Then
+                    hOk = False
+                ElseIf arrE(hI, 1) > hMax Then
+                    hMax = arrE(hI, 1)
+                End If
+            Next hI
+
+            If hOk And (hB - hA) > 5 Then
+                hPk = hB
+                For hI = hA To hB
+                    If arrE(hI, 1) >= hMax - 0.3 Then
+                        hPk = hI
+                        Exit For
+                    End If
+                Next hI
+
+                ReDim hOrig(hA To hPk)
+                For hI = hA To hPk
+                    hOrig(hI) = arrE(hI, 1)
+                Next hI
+                hLo = 0 : hHi = 0
+
+                hI = hA + 1
+                Do While hI <= hPk
+                    If arrE(hI, 1) < arrE(hI - 1, 1) - HEAT_TOL Then
+                        hJ = 0
+                        For hM = hI + 1 To hPk
+                            If arrE(hM, 1) >= arrE(hI - 1, 1) Then
+                                hJ = hM
+                                Exit For
+                            End If
+                        Next hM
+                        If hJ = 0 Then
+                            hI = hI + 1
+                        Else
+                            For hM = hI To hJ - 1
+                                arrE(hM, 1) = arrE(hI - 1, 1) + (arrE(hJ, 1) - arrE(hI - 1, 1)) * (hM - hI + 1) / (hJ - hI + 1)
+                            Next hM
+                            If hLo = 0 Or hI < hLo Then hLo = hI
+                            If hJ > hHi Then hHi = hJ
+                            hI = hJ + 1
+                        End If
+                    Else
+                        hI = hI + 1
+                    End If
+                Loop
+
+                If hLo > 0 Then
+                    Dim sLo As Long, sHi As Long
+                    sLo = hLo - 20 : If sLo < hA + 1 Then sLo = hA + 1
+                    sHi = hHi + 20 : If sHi > hPk - 1 Then sHi = hPk - 1
+                    Dim hCopy() As Double
+                    ReDim hCopy(hA To hPk)
+                    For hI = hA To hPk
+                        hCopy(hI) = arrE(hI, 1)
+                    Next hI
+                    For hI = sLo To sHi
+                        hSum = 0 : hC = 0
+                        For hQ = hI - HEAT_SMOOTH To hI + HEAT_SMOOTH
+                            If hQ >= hA And hQ <= hPk Then
+                                hSum = hSum + hCopy(hQ)
+                                hC = hC + 1
+                            End If
+                        Next hQ
+                        If hC > 0 Then arrE(hI, 1) = hSum / hC
+                    Next hI
+                    For hI = hA To hPk
+                        If Abs(arrE(hI, 1) - hOrig(hI)) > 0.000001 Then
+                            If IsEmpty(arrS(hI, 1)) Then arrS(hI, 1) = hOrig(hI)
+                            changedCnt = changedCnt + 1
+                        End If
+                    Next hI
+                End If
+            End If
+            hA = hB + 1
+        End If
+    Loop
 
     Dim jmp As Double, kk As Long, jj As Long
     Const BLEND_ROWS As Long = 30
@@ -458,7 +561,7 @@ End Sub
 ' программе); охлаждение начинается после последней строки, где T среды
 ' была в пределах 2°C от максимума цикла, и тянется до начала следующего цикла.
 '-------------------------------------------------------------
-Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Boolean)
+Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Boolean, ByRef isHeat() As Boolean)
     Dim p As Long, q As Long
     Dim inCyc As Boolean : inCyc = False
     Dim cs As Long, ce As Long
@@ -513,6 +616,18 @@ Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Bool
                     If CDbl(dV) >= dMax - 0.5 Then lastHot = q
                 End If
             Next q
+            For q = csArr(ci) To lastHot
+                If q >= 2 And q <= lastRow Then isHeat(q - 1) = True
+            Next q
+            q = csArr(ci) - 1
+            Do While q >= 2
+                If isCool(q - 1) Then Exit Do
+                dV = wsData.Cells(q, 4).Value
+                If Not IsNumeric(dV) Then Exit Do
+                If CDbl(dV) < 40# Then Exit Do
+                isHeat(q - 1) = True
+                q = q - 1
+            Loop
             If ci < nC Then zoneEnd = csArr(ci + 1) - 1 Else zoneEnd = lastRow
             For q = lastHot + 1 To zoneEnd
                 If q >= 2 And q <= lastRow Then isCool(q - 1) = True
