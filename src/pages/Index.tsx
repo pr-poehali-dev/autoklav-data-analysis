@@ -445,6 +445,73 @@ Sub Autoclave_CorrectProductTemp()
                         End If
                     Next hI
                 End If
+
+                If (hPk - hA) >= 40 Then
+                    Const SH_K As Long = 5
+                    Const SH_LOOK As Long = 80
+                    Const SH_MARGIN As Long = 8
+                    Dim s2d() As Double
+                    Dim s2i As Long, s2j As Long, s2m As Long, s2jm As Long
+                    Dim s2max As Double, s2imax As Long, s2lo As Long, s2hi As Long
+                    Dim s2a As Long, s2b As Long, s2y0 As Double, s2y1 As Double
+                    Dim s2m0 As Double, s2m1 As Double, s2t As Double, s2r As Long
+                    Dim s2ahead As Double, s2jend As Long
+                    ReDim s2d(hA To hPk)
+                    For s2i = hA + SH_K To hPk - SH_K
+                        s2d(s2i) = (arrE(s2i + SH_K, 1) - arrE(s2i - SH_K, 1)) / (2# * SH_K)
+                    Next s2i
+
+                    s2max = -999 : s2imax = hA + SH_K
+                    For s2i = hA + SH_K To hPk - SH_K
+                        If s2d(s2i) > s2max Then
+                            s2max = s2d(s2i)
+                            s2imax = s2i
+                        End If
+                    Next s2i
+
+                    s2i = s2imax + 1
+                    Do While s2i <= hPk - SH_K - 1
+                        s2jend = s2i + SH_LOOK
+                        If s2jend > hPk - SH_K Then s2jend = hPk - SH_K
+                        s2ahead = -999 : s2jm = s2i
+                        For s2j = s2i + 1 To s2jend
+                            If s2d(s2j) > s2ahead Then
+                                s2ahead = s2d(s2j)
+                                s2jm = s2j
+                            End If
+                        Next s2j
+                        If s2ahead - s2d(s2i) > 0.003 And s2d(s2i) < s2ahead * 0.85 Then
+                            s2lo = s2i
+                            s2hi = s2jm
+                            s2a = s2lo - SH_MARGIN
+                            If s2a < hA + SH_K Then s2a = hA + SH_K
+                            s2b = s2hi + SH_MARGIN
+                            If s2b > hPk - SH_K Then s2b = hPk - SH_K
+                            If s2b - s2a >= 6 Then
+                                s2y0 = arrE(s2a, 1)
+                                s2y1 = arrE(s2b, 1)
+                                s2m0 = s2d(s2a) * (s2b - s2a)
+                                s2m1 = s2d(s2b) * (s2b - s2a)
+                                For s2r = s2a + 1 To s2b - 1
+                                    s2t = (s2r - s2a) / (s2b - s2a)
+                                    arrE(s2r, 1) = (2 * s2t ^ 3 - 3 * s2t ^ 2 + 1) * s2y0 + _
+                                                   (s2t ^ 3 - 2 * s2t ^ 2 + s2t) * s2m0 + _
+                                                   (-2 * s2t ^ 3 + 3 * s2t ^ 2) * s2y1 + _
+                                                   (s2t ^ 3 - s2t ^ 2) * s2m1
+                                    If arrE(s2r, 1) > s2y1 Then arrE(s2r, 1) = s2y1
+                                    If arrE(s2r, 1) < s2y0 Then arrE(s2r, 1) = s2y0
+                                    If Abs(arrE(s2r, 1) - hOrig(s2r)) > 0.000001 Then
+                                        If IsEmpty(arrS(s2r, 1)) Then arrS(s2r, 1) = hOrig(s2r)
+                                        changedCnt = changedCnt + 1
+                                    End If
+                                Next s2r
+                            End If
+                            s2i = s2b + 1
+                        Else
+                            s2i = s2i + 1
+                        End If
+                    Loop
+                End If
             End If
             hA = hB + 1
         End If
