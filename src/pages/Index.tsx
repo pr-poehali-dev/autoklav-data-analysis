@@ -247,6 +247,9 @@ Sub Autoclave_ProcessCSV()
         wb.Sheets(Array("Data", "F0_Report", "График")).Copy
         Set wbNew = ActiveWorkbook
 
+        ' Запоминаем число вставленных строк предыдущих суток — нужно для корректного пересчёта в Корректировке
+        wbNew.Names.Add Name:="PrevInsRows", RefersTo:="=" & CStr(prevInsertedRows)
+
         ' Сохраняем новую книгу как xlsm
         Application.DisplayAlerts = False
         wbNew.SaveAs Filename:=savePath, FileFormat:=xlOpenXMLWorkbookMacroEnabled
@@ -266,6 +269,214 @@ Sub Autoclave_ProcessCSV()
     MsgBox "Расчёт завершён! Результаты на листе 'F0_Report'." & savedMsg, _
            vbInformation, "Автоклав F0 — Готово"
 End Sub
+
+'-------------------------------------------------------------
+' КОРРЕКТИРОВКА: температура продукта (столбец E) не должна быть выше
+' температуры среды (столбец D). Открывает готовый .xlsm, исправляет лист Data,
+' затем пересчитывает F0, отчёт F0_Report и перестраивает листы с графиками.
+' Исходные значения E сохраняются в столбце S листа Data.
+'-------------------------------------------------------------
+Sub Autoclave_CorrectProductTemp()
+    Dim fp As String
+    fp = CStr(Application.GetOpenFilename( _
+        FileFilter:="Excel Files (*.xlsm;*.xlsx),*.xlsm;*.xlsx,All Files (*.*),*.*", _
+        Title:="Выберите готовый файл для корректировки (например 20261012.csv___20261013.csv___20261014.xlsm)"))
+    If fp = "False" Then Exit Sub
+
+    Dim wbC As Workbook
+    Dim wbTmp As Workbook
+    For Each wbTmp In Application.Workbooks
+        If LCase(wbTmp.FullName) = LCase(fp) Then Set wbC = wbTmp
+    Next wbTmp
+    If wbC Is Nothing Then
+        On Error Resume Next
+        Set wbC = Workbooks.Open(Filename:=fp)
+        On Error GoTo 0
+    End If
+    If wbC Is Nothing Then
+        MsgBox "Не удалось открыть файл:" & Chr(13) & fp, vbExclamation, "Корректировка"
+        Exit Sub
+    End If
+    If wbC.ReadOnly Then
+        MsgBox "Файл открыт только для чтения — корректировка невозможна.", vbExclamation, "Корректировка"
+        Exit Sub
+    End If
+    If Not SheetExistsInWb(wbC, "Data") Then
+        MsgBox "В файле нет листа 'Data'.", vbExclamation, "Корректировка"
+        Exit Sub
+    End If
+
+    Dim wsData As Worksheet
+    Set wsData = wbC.Sheets("Data")
+    Dim lastRow As Long
+    lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+    If lastRow < 3 Then
+        MsgBox "На листе 'Data' нет данных.", vbExclamation, "Корректировка"
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+
+    ' ----- 1. Корректируем столбец E: T продукта не выше T среды (столбец D) -----
+    Dim nR As Long : nR = lastRow - 1
+    Dim arrD As Variant, arrE As Variant, arrS As Variant
+    arrD = wsData.Range(wsData.Cells(2, 4), wsData.Cells(lastRow, 4)).Value
+    arrE = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value
+    arrS = wsData.Range(wsData.Cells(2, 19), wsData.Cells(lastRow, 19)).Value
+
+    Dim i As Long
+    Dim changedCnt As Long : changedCnt = 0
+    For i = 1 To nR
+        If VarType(arrD(i, 1)) = vbDouble And VarType(arrE(i, 1)) = vbDouble Then
+            If arrE(i, 1) > arrD(i, 1) Then
+                If IsEmpty(arrS(i, 1)) Then arrS(i, 1) = arrE(i, 1)
+                arrE(i, 1) = arrD(i, 1)
+                changedCnt = changedCnt + 1
+            End If
+        End If
+    Next i
+
+    If changedCnt = 0 Then
+        Application.Calculation = xlCalculationAutomatic
+        Application.ScreenUpdating = True
+        MsgBox "Корректировка не требуется: температура продукта нигде не превышает температуру среды.", _
+               vbInformation, "Корректировка"
+        Exit Sub
+    End If
+
+    wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value = arrE
+    wsData.Range(wsData.Cells(2, 19), wsData.Cells(lastRow, 19)).Value = arrS
+    wsData.Cells(1, 19).Value = "T_ПРОДУКТА_ДО_КОРРЕКТИРОВКИ"
+    wsData.Cells(1, 19).Font.Bold = True
+    wsData.Cells(1, 19).Interior.Color = wsData.Cells(1, 18).Interior.Color
+    wsData.Cells(1, 19).Font.Color = wsData.Cells(1, 18).Font.Color
+    wsData.Columns(19).NumberFormat = "0.00"
+    wsData.Columns(19).AutoFit
+
+    ' ----- 2. Имя файла для заголовков и число строк предыдущих суток -----
+    Dim fName As String
+    fName = Mid(fp, InStrRev(fp, "\\") + 1)
+    Dim baseName As String : baseName = fName
+    If LCase(Right(baseName, 5)) = ".xlsm" Or LCase(Right(baseName, 5)) = ".xlsx" Then
+        baseName = Left(baseName, Len(baseName) - 5)
+    End If
+    Dim nameParts() As String
+    nameParts = Split(baseName, "___")
+    For i = 0 To UBound(nameParts)
+        If LCase(Right(nameParts(i), 4)) <> ".csv" Then nameParts(i) = nameParts(i) & ".csv"
+    Next i
+    Dim csvFileName As String
+    csvFileName = Join(nameParts, " + ")
+
+    Dim prevIns As Long
+    prevIns = DetectPrevInsertedRows(wbC, wsData, nameParts, lastRow)
+
+    ' ----- 3. Пересчёт F0, отчёта и графиков (та же логика, что в основной программе) -----
+    wbC.Activate
+    wsData.Range(wsData.Cells(2, 18), wsData.Cells(lastRow, 18)).ClearContents
+
+    Dim wsReport As Worksheet
+    Dim trefInfoStr As String
+    trefInfoStr = "Стерилизация: Tref = 121.1C (ГОСТ)  |  z-фактор = 10C  |  СЭ по датчику в центре продукта  |  Норма F0 >= 8"
+
+    Call PrepareReportSheet(wbC, wsReport, csvFileName, trefInfoStr)
+    Call DetectCyclesAndCalculateF0(wsData, wsReport, lastRow, prevIns)
+    Call FormatReportSheet(wsReport)
+    Call BuildTemperatureChart(wbC, wsData, lastRow, csvFileName, prevIns)
+
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+
+    Dim saveNote As String
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    wbC.Save
+    If Err.Number <> 0 Then
+        saveNote = Chr(13) & Chr(13) & "Не удалось сохранить файл — сохраните его вручную."
+    Else
+        saveNote = Chr(13) & Chr(13) & "Файл сохранён:" & Chr(13) & fp
+    End If
+    Err.Clear
+    Application.DisplayAlerts = True
+    wbC.Sheets("График").Activate
+    On Error GoTo 0
+
+    MsgBox "Корректировка выполнена." & Chr(13) & _
+           "Исправлено значений температуры продукта: " & changedCnt & Chr(13) & _
+           "F0, отчёт и графики пересчитаны." & saveNote, _
+           vbInformation, "Корректировка — Готово"
+End Sub
+
+'-------------------------------------------------------------
+' Сколько строк в начале листа Data принадлежит предыдущим суткам
+' (вставлены при объединении файлов). Сначала читаем сохранённое значение,
+' для старых файлов определяем по датам из имён файлов.
+'-------------------------------------------------------------
+Function DetectPrevInsertedRows(wb As Workbook, wsData As Worksheet, nameParts() As String, lastRow As Long) As Long
+    DetectPrevInsertedRows = 0
+
+    Dim nmVal As String
+    nmVal = ""
+    On Error Resume Next
+    nmVal = wb.Names("PrevInsRows").RefersTo
+    On Error GoTo 0
+    If Len(nmVal) > 1 Then
+        DetectPrevInsertedRows = CLng(Val(Mid(nmVal, 2)))
+        If DetectPrevInsertedRows > lastRow - 1 Then DetectPrevInsertedRows = 0
+        Exit Function
+    End If
+
+    Dim nParts As Integer
+    nParts = UBound(nameParts) + 1
+    If nParts < 2 Then Exit Function
+
+    Dim mainIdx As Integer
+    If nParts >= 3 Then
+        mainIdx = 1
+    Else
+        Dim ansP As Integer
+        ansP = MsgBox("Файл объединяет два CSV:" & Chr(13) & nameParts(0) & Chr(13) & nameParts(1) & Chr(13) & Chr(13) & _
+                      "Первый файл — это ПРЕДЫДУЩИЕ сутки (основной — второй)?" & Chr(13) & _
+                      "Да — первый предыдущий." & Chr(13) & "Нет — первый основной, второй — следующие сутки.", _
+                      vbYesNo + vbQuestion, "Корректировка — уточнение")
+        If ansP = vbYes Then mainIdx = 1 Else mainIdx = 0
+    End If
+    If mainIdx = 0 Then Exit Function
+
+    Dim mainDate As Double
+    mainDate = ParseDateFromName(nameParts(mainIdx))
+    If mainDate = 0 Then Exit Function
+
+    Dim r As Long, dVal As Long
+    Dim firstMainRow As Long
+    firstMainRow = lastRow + 1
+    For r = 2 To lastRow
+        If IsDate(wsData.Cells(r, 1).Value) Then
+            dVal = CLng(CDate(wsData.Cells(r, 1).Value))
+            If dVal >= CLng(mainDate) Then
+                firstMainRow = r
+                Exit For
+            End If
+        End If
+    Next r
+    DetectPrevInsertedRows = firstMainRow - 2
+    If DetectPrevInsertedRows < 0 Then DetectPrevInsertedRows = 0
+End Function
+
+'-------------------------------------------------------------
+' Дата из имени файла вида 20261012.csv (0 — если не распознана)
+'-------------------------------------------------------------
+Function ParseDateFromName(nm As String) As Double
+    ParseDateFromName = 0
+    Dim s As String
+    s = Left(nm, 8)
+    If Len(s) = 8 And IsNumeric(s) Then
+        On Error Resume Next
+        ParseDateFromName = CDbl(DateSerial(CInt(Left(s, 4)), CInt(Mid(s, 5, 2)), CInt(Mid(s, 7, 2))))
+        On Error GoTo 0
+    End If
+End Function
 
 '-------------------------------------------------------------
 ' Проверяет: начинается ли файл с "горячей" температуры в 00:00
@@ -3294,7 +3505,7 @@ export default function Index() {
               {
                 n: "4",
                 t: "Запуск макроса",
-                d: "F5 или вкладка Разработчик → Макросы → Autoclave_ProcessCSV",
+                d: "F5 или Разработчик → Макросы → Autoclave_ProcessCSV. Для корректировки готового .xlsm — Autoclave_CorrectProductTemp (её можно назначить на кнопку «Корректировка»)",
               },
               {
                 n: "5",
