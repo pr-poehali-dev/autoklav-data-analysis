@@ -325,10 +325,20 @@ Sub Autoclave_CorrectProductTemp()
     arrE = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value
     arrS = wsData.Range(wsData.Cells(2, 19), wsData.Cells(lastRow, 19)).Value
 
+    Dim isCool() As Boolean
+    ReDim isCool(1 To nR)
+    Call MarkCoolingRows(wsData, lastRow, isCool)
+
     Dim i As Long
     Dim changedCnt As Long : changedCnt = 0
     For i = 1 To nR
-        If VarType(arrD(i, 1)) = vbDouble And VarType(arrE(i, 1)) = vbDouble Then
+        If isCool(i) Then
+            If Not IsEmpty(arrS(i, 1)) Then
+                arrE(i, 1) = arrS(i, 1)
+                arrS(i, 1) = Empty
+                changedCnt = changedCnt + 1
+            End If
+        ElseIf VarType(arrD(i, 1)) = vbDouble And VarType(arrE(i, 1)) = vbDouble Then
             If arrE(i, 1) > arrD(i, 1) Then
                 If IsEmpty(arrS(i, 1)) Then arrS(i, 1) = arrE(i, 1)
                 arrE(i, 1) = arrD(i, 1)
@@ -406,6 +416,75 @@ Sub Autoclave_CorrectProductTemp()
            "Исправлено значений температуры продукта: " & changedCnt & Chr(13) & _
            "F0, отчёт и графики пересчитаны." & saveNote, _
            vbInformation, "Корректировка — Готово"
+End Sub
+
+'-------------------------------------------------------------
+' Отмечает строки охлаждения (isCool(row-1) = True): в них температуру продукта
+' не трогаем, чтобы остывание было плавным. Цикл — по давлению (как в основной
+' программе); охлаждение начинается после последней строки, где T среды
+' была в пределах 2°C от максимума цикла, и тянется до начала следующего цикла.
+'-------------------------------------------------------------
+Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Boolean)
+    Dim p As Long, q As Long
+    Dim inCyc As Boolean : inCyc = False
+    Dim cs As Long, ce As Long
+    Dim endCnt As Integer : endCnt = 0
+    Dim prV As Variant
+    Dim pLvl As Double
+    Dim csArr(1 To 500) As Long
+    Dim ceArr(1 To 500) As Long
+    Dim nC As Integer : nC = 0
+
+    For p = 2 To lastRow
+        prV = wsData.Cells(p, 6).Value
+        If IsNumeric(prV) Then pLvl = CDbl(prV) Else pLvl = 0
+        If Not inCyc Then
+            If pLvl >= 6# Then
+                inCyc = True : cs = p : endCnt = 0
+            End If
+        Else
+            If pLvl < 6# Then endCnt = endCnt + 1 Else endCnt = 0
+            If endCnt >= 5 Or p = lastRow Then
+                If endCnt >= 5 Then ce = p - endCnt + 1 Else ce = p
+                If ce < cs Then ce = cs
+                If (ce - cs + 1) >= 30 And nC < 500 Then
+                    nC = nC + 1
+                    csArr(nC) = cs
+                    ceArr(nC) = ce
+                End If
+                inCyc = False : endCnt = 0
+            End If
+        End If
+    Next p
+
+    Dim ci As Integer
+    Dim dV As Variant
+    Dim dMax As Double, dCur As Double
+    Dim lastHot As Long
+    Dim zoneEnd As Long
+    For ci = 1 To nC
+        dMax = -999
+        For q = csArr(ci) To ceArr(ci)
+            dV = wsData.Cells(q, 4).Value
+            If IsNumeric(dV) Then
+                dCur = CDbl(dV)
+                If dCur > dMax Then dMax = dCur
+            End If
+        Next q
+        If dMax >= 50# Then
+            lastHot = csArr(ci)
+            For q = csArr(ci) To ceArr(ci)
+                dV = wsData.Cells(q, 4).Value
+                If IsNumeric(dV) Then
+                    If CDbl(dV) >= dMax - 2# Then lastHot = q
+                End If
+            Next q
+            If ci < nC Then zoneEnd = csArr(ci + 1) - 1 Else zoneEnd = lastRow
+            For q = lastHot + 1 To zoneEnd
+                If q >= 2 And q <= lastRow Then isCool(q - 1) = True
+            Next q
+        End If
+    Next ci
 End Sub
 
 '-------------------------------------------------------------
