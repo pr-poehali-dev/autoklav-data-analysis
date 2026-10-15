@@ -666,22 +666,32 @@ Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Bool
     Dim lastHot As Long
     Dim zoneEnd As Long
     For ci = 1 To nC
+        Dim smArr() As Double
+        Dim nSm As Long : nSm = ceArr(ci) - csArr(ci) + 1
+        ReDim smArr(1 To nSm)
+        Dim smI As Long, smK As Long, smN As Long, smS As Double
+        For smI = 1 To nSm
+            smS = 0 : smN = 0
+            For smK = smI - 10 To smI + 10
+                If smK >= 1 And smK <= nSm Then
+                    dV = wsData.Cells(csArr(ci) + smK - 1, 4).Value
+                    If IsNumeric(dV) Then
+                        smS = smS + CDbl(dV)
+                        smN = smN + 1
+                    End If
+                End If
+            Next smK
+            If smN > 0 Then smArr(smI) = smS / smN Else smArr(smI) = -999
+        Next smI
         dMax = -999
-        For q = csArr(ci) To ceArr(ci)
-            dV = wsData.Cells(q, 4).Value
-            If IsNumeric(dV) Then
-                dCur = CDbl(dV)
-                If dCur > dMax Then dMax = dCur
-            End If
-        Next q
+        For smI = 1 To nSm
+            If smArr(smI) > dMax Then dMax = smArr(smI)
+        Next smI
         If dMax >= 50# Then
             lastHot = csArr(ci)
-            For q = csArr(ci) To ceArr(ci)
-                dV = wsData.Cells(q, 4).Value
-                If IsNumeric(dV) Then
-                    If CDbl(dV) >= dMax - 3# Then lastHot = q
-                End If
-            Next q
+            For smI = 1 To nSm
+                If smArr(smI) >= dMax - 1# Then lastHot = csArr(ci) + smI - 1
+            Next smI
             For q = csArr(ci) To lastHot
                 If q >= 2 And q <= lastRow Then isHeat(q - 1) = True
             Next q
