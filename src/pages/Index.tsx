@@ -520,32 +520,55 @@ Sub Autoclave_CorrectProductTemp()
 
     On Error GoTo 0
 
-    Dim jmp As Double, kk As Long, jj As Long
-    Const BLEND_ROWS As Long = 30
+    Dim cA As Long, cB As Long, cJ As Long, cR As Long
+    Dim cyA As Double, cyB As Double, cmA As Double, cmB As Double
+    Dim cSpan As Double, cT As Double, cH As Double, cPrev As Double, cLim As Long
+    Const COOL_BACK As Long = 15
     For i = 2 To nR
         If isCool(i) And Not isCool(i - 1) Then
-            If VarType(arrE(i, 1)) = vbDouble And VarType(arrE(i - 1, 1)) = vbDouble Then
-                jmp = arrE(i, 1) - arrE(i - 1, 1)
-                If jmp < 0 Then jmp = 0
-                Dim prevV As Double, tgtV As Double, origV As Double
-                prevV = arrE(i - 1, 1)
-                For kk = 0 To BLEND_ROWS - 1
-                    jj = i + kk
-                    If jj > nR Then Exit For
-                    If Not isCool(jj) Then Exit For
-                    If VarType(arrE(jj, 1)) <> vbDouble Then Exit For
-                    origV = arrE(jj, 1)
-                    tgtV = origV - jmp * (1# - kk / BLEND_ROWS)
-                    If tgtV > prevV Then tgtV = prevV
-                    If tgtV < origV Then
-                        If IsEmpty(arrS(jj, 1)) Then arrS(jj, 1) = origV
-                        arrE(jj, 1) = tgtV
-                        changedCnt = changedCnt + 1
-                    Else
-                        tgtV = origV
+            cA = i - COOL_BACK
+            If cA < 6 Then cA = 6
+            If cA < i And VarType(arrE(cA, 1)) = vbDouble And VarType(arrE(cA - 5, 1)) = vbDouble Then
+                cyA = arrE(cA, 1)
+                cmA = (arrE(cA, 1) - arrE(cA - 5, 1)) / 5#
+                If cmA > 0 Then cmA = 0
+                cB = 0
+                cLim = i + 600
+                If cLim > nR - 4 Then cLim = nR - 4
+                For cJ = i + 5 To cLim
+                    If Not isCool(cJ) Then Exit For
+                    If VarType(arrE(cJ, 1)) <> vbDouble Then Exit For
+                    If VarType(arrE(cJ - 3, 1)) = vbDouble And VarType(arrE(cJ + 3, 1)) = vbDouble Then
+                        If arrE(cJ, 1) <= cyA - 0.3 And arrE(cJ + 3, 1) < arrE(cJ - 3, 1) Then
+                            cB = cJ
+                            Exit For
+                        End If
                     End If
-                    prevV = tgtV
-                Next kk
+                Next cJ
+                If cB > cA + 3 Then
+                    cyB = arrE(cB, 1)
+                    cmB = (arrE(cB + 3, 1) - arrE(cB - 3, 1)) / 6#
+                    If cmB > 0 Then cmB = 0
+                    cSpan = cB - cA
+                    cPrev = cyA
+                    For cR = cA + 1 To cB - 1
+                        cT = (cR - cA) / cSpan
+                        cH = (2 * cT ^ 3 - 3 * cT ^ 2 + 1) * cyA + _
+                             (cT ^ 3 - 2 * cT ^ 2 + cT) * cmA * cSpan + _
+                             (-2 * cT ^ 3 + 3 * cT ^ 2) * cyB + _
+                             (cT ^ 3 - cT ^ 2) * cmB * cSpan
+                        If cH > cPrev Then cH = cPrev
+                        If cH < cyB Then cH = cyB
+                        If VarType(arrE(cR, 1)) = vbDouble Then
+                            If Abs(arrE(cR, 1) - cH) > 0.000001 Then
+                                If IsEmpty(arrS(cR, 1)) Then arrS(cR, 1) = arrE(cR, 1)
+                                arrE(cR, 1) = cH
+                                changedCnt = changedCnt + 1
+                            End If
+                        End If
+                        cPrev = cH
+                    Next cR
+                End If
             End If
         End If
     Next i
