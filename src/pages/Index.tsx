@@ -1696,6 +1696,9 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
     Dim tkVP1 As Double
     inCyc = False : endCount = 0 : tKmaxP1 = 0
 
+    Dim actRows() As Boolean
+    Call BuildActiveRows(wsData, lastRow, actRows)
+
     For p = 2 To lastRow
         wRv  = wsData.Cells(p, COL_WATER).Value
         prRv = wsData.Cells(p, COL_PRESSURE).Value
@@ -1703,7 +1706,7 @@ Sub DetectCyclesAndCalculateF0(wsData As Worksheet, wsReport As Worksheet, lastR
         pressLvl = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         ' Признак "активного" состояния — только по давлению
-        cycleActive = (pressLvl >= CYCLE_THRESH)
+        cycleActive = actRows(p)
 
         If Not inCyc Then
             If cycleActive Then
@@ -1919,6 +1922,52 @@ NextCycle:
     Next ci
 
     Call AddSummaryRow(wsReport, reportRow, validCycleCount, validCycleCount, noteArr, resultArr, resultColorArr)
+End Sub
+
+'-------------------------------------------------------------
+' Активность строк для поиска циклов: давление >= 6 (как раньше) +
+' запасной вариант для циклов с низким давлением (например 110°C):
+' непрерывный участок T среды >= 100°C, где давление ни разу не достигло 6
+'-------------------------------------------------------------
+Sub BuildActiveRows(wsData As Worksheet, lastRow As Long, ByRef act() As Boolean)
+    Dim r As Long, s As Long, e As Long, k As Long
+    Dim pv As Variant, dv As Variant
+    Dim hasPress As Boolean, isHot As Boolean
+    ReDim act(1 To lastRow)
+    For r = 2 To lastRow
+        pv = wsData.Cells(r, 6).Value
+        If IsNumeric(pv) Then
+            If CDbl(pv) >= 6# Then act(r) = True
+        End If
+    Next r
+
+    r = 2
+    Do While r <= lastRow
+        isHot = False
+        dv = wsData.Cells(r, 4).Value
+        If IsNumeric(dv) Then
+            If CDbl(dv) >= 100# Then isHot = True
+        End If
+        If Not isHot Then
+            r = r + 1
+        Else
+            s = r
+            hasPress = False
+            Do While r <= lastRow
+                dv = wsData.Cells(r, 4).Value
+                If Not IsNumeric(dv) Then Exit Do
+                If CDbl(dv) < 100# Then Exit Do
+                If act(r) Then hasPress = True
+                r = r + 1
+            Loop
+            e = r - 1
+            If Not hasPress And (e - s + 1) >= 30 Then
+                For k = s To e
+                    act(k) = True
+                Next k
+            End If
+        End If
+    Loop
 End Sub
 
 '-------------------------------------------------------------
@@ -3041,6 +3090,8 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
     Dim topOffset As Long : topOffset = 30  ' отступ сверху — место для имён файлов над первым графиком
 
     Dim p As Long
+    Dim actRowsCy() As Boolean
+    Call BuildActiveRows(wsData, lastRow, actRowsCy)
     For p = 2 To lastRow
         Dim wRv As Variant, prRv As Variant
         wRv  = wsData.Cells(p, 7).Value  ' G — уровень воды
@@ -3049,7 +3100,7 @@ Sub BuildTemperatureChart(wb As Workbook, wsData As Worksheet, lastRow As Long, 
         pressLvlCy = IIf(IsNumeric(prRv), CDbl(prRv), 0)
 
         Dim cycActCy As Boolean
-        cycActCy = (pressLvlCy >= CY_THRESH)
+        cycActCy = actRowsCy(p)
 
         If Not inCyc Then
             If cycActCy Then
