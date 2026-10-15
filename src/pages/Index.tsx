@@ -529,27 +529,23 @@ Sub Autoclave_CorrectProductTemp()
                 If jmp < 0 Then jmp = 0
                 Dim prevV As Double, tgtV As Double, origV As Double
                 prevV = arrE(i - 1, 1)
-                kk = 0
-                For jj = i To nR
+                For kk = 0 To BLEND_ROWS - 1
+                    jj = i + kk
+                    If jj > nR Then Exit For
                     If Not isCool(jj) Then Exit For
                     If VarType(arrE(jj, 1)) <> vbDouble Then Exit For
                     origV = arrE(jj, 1)
-                    If kk < BLEND_ROWS Then
-                        tgtV = origV - jmp * (1# - kk / BLEND_ROWS)
-                    Else
-                        tgtV = origV
-                    End If
+                    tgtV = origV - jmp * (1# - kk / BLEND_ROWS)
                     If tgtV > prevV Then tgtV = prevV
-                    If tgtV <> origV Then
+                    If tgtV < origV Then
                         If IsEmpty(arrS(jj, 1)) Then arrS(jj, 1) = origV
                         arrE(jj, 1) = tgtV
                         changedCnt = changedCnt + 1
-                    ElseIf kk >= BLEND_ROWS Then
-                        Exit For
+                    Else
+                        tgtV = origV
                     End If
                     prevV = tgtV
-                    kk = kk + 1
-                Next jj
+                Next kk
             End If
         End If
     Next i
@@ -683,7 +679,7 @@ Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Bool
             For q = csArr(ci) To ceArr(ci)
                 dV = wsData.Cells(q, 4).Value
                 If IsNumeric(dV) Then
-                    If CDbl(dV) >= dMax - 0.5 Then lastHot = q
+                    If CDbl(dV) >= dMax - 3# Then lastHot = q
                 End If
             Next q
             For q = csArr(ci) To lastHot
