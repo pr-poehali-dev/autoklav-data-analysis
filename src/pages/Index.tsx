@@ -520,54 +520,71 @@ Sub Autoclave_CorrectProductTemp()
 
     On Error GoTo 0
 
-    Dim cA As Long, cB As Long, cJ As Long, cR As Long
-    Dim cyA As Double, cyB As Double, cmA As Double, cmB As Double
-    Dim cSpan As Double, cT As Double, cH As Double, cPrev As Double, cLim As Long
-    Const COOL_BACK As Long = 15
-    For i = 2 To nR
+    Dim fL As Double, fM As Long, fJ As Long, fK As Long, fLim As Long, fOk As Boolean
+    Dim fLo As Long, fHi As Long, fR As Long, fSum As Double, fCnt As Long, fPrev As Double, fNew As Double
+    Dim fCopy() As Double
+    For i = 12 To nR
         If isCool(i) And Not isCool(i - 1) Then
-            cA = i - COOL_BACK
-            If cA < 6 Then cA = 6
-            If cA < i And VarType(arrE(cA, 1)) = vbDouble And VarType(arrE(cA - 5, 1)) = vbDouble Then
-                cyA = arrE(cA, 1)
-                cmA = (arrE(cA, 1) - arrE(cA - 5, 1)) / 5#
-                If cmA > 0 Then cmA = 0
-                cB = 0
-                cLim = i + 600
-                If cLim > nR - 4 Then cLim = nR - 4
-                For cJ = i + 5 To cLim
-                    If Not isCool(cJ) Then Exit For
-                    If VarType(arrE(cJ, 1)) <> vbDouble Then Exit For
-                    If VarType(arrE(cJ - 3, 1)) = vbDouble And VarType(arrE(cJ + 3, 1)) = vbDouble Then
-                        If arrE(cJ, 1) <= cyA - 0.3 And arrE(cJ + 3, 1) < arrE(cJ - 3, 1) Then
-                            cB = cJ
-                            Exit For
-                        End If
+            fOk = True
+            fL = 1E+30
+            For fK = i - 10 To i - 1
+                If VarType(arrE(fK, 1)) <> vbDouble Then
+                    fOk = False
+                ElseIf arrE(fK, 1) < fL Then
+                    fL = arrE(fK, 1)
+                End If
+            Next fK
+            If fOk Then
+                fM = 0
+                fLim = i + 700
+                If fLim > nR Then fLim = nR
+                For fJ = i To fLim
+                    If Not isCool(fJ) Then Exit For
+                    If VarType(arrE(fJ, 1)) <> vbDouble Then Exit For
+                    If arrE(fJ, 1) <= fL Then
+                        fM = fJ
+                        Exit For
                     End If
-                Next cJ
-                If cB > cA + 3 Then
-                    cyB = arrE(cB, 1)
-                    cmB = (arrE(cB + 3, 1) - arrE(cB - 3, 1)) / 6#
-                    If cmB > 0 Then cmB = 0
-                    cSpan = cB - cA
-                    cPrev = cyA
-                    For cR = cA + 1 To cB - 1
-                        cT = (cR - cA) / cSpan
-                        cH = (2 * cT ^ 3 - 3 * cT ^ 2 + 1) * cyA + _
-                             (cT ^ 3 - 2 * cT ^ 2 + cT) * cmA * cSpan + _
-                             (-2 * cT ^ 3 + 3 * cT ^ 2) * cyB + _
-                             (cT ^ 3 - cT ^ 2) * cmB * cSpan
-                        If cH > cPrev Then cH = cPrev
-                        If cH < cyB Then cH = cyB
-                        If VarType(arrE(cR, 1)) = vbDouble Then
-                            If Abs(arrE(cR, 1) - cH) > 0.000001 Then
-                                If IsEmpty(arrS(cR, 1)) Then arrS(cR, 1) = arrE(cR, 1)
-                                arrE(cR, 1) = cH
-                                changedCnt = changedCnt + 1
-                            End If
+                Next fJ
+                If fM > 0 Then
+                    For fJ = i To fM - 1
+                        If Abs(arrE(fJ, 1) - fL) > 0.000001 Then
+                            If IsEmpty(arrS(fJ, 1)) Then arrS(fJ, 1) = arrE(fJ, 1)
+                            arrE(fJ, 1) = fL
+                            changedCnt = changedCnt + 1
                         End If
-                        cPrev = cH
-                    Next cR
+                    Next fJ
+                    fLo = fM - 8
+                    If fLo < i Then fLo = i
+                    fHi = fM + 8
+                    If fHi > nR Then fHi = nR
+                    If fHi > fLo + 2 Then
+                        ReDim fCopy(fLo To fHi)
+                        For fJ = fLo To fHi
+                            If VarType(arrE(fJ, 1)) = vbDouble Then fCopy(fJ) = arrE(fJ, 1) Else fCopy(fJ) = fL
+                        Next fJ
+                        fPrev = fL
+                        For fJ = fLo To fHi
+                            fR = 4
+                            If fJ - fLo < fR Then fR = fJ - fLo
+                            If fHi - fJ < fR Then fR = fHi - fJ
+                            fSum = 0 : fCnt = 0
+                            For fK = fJ - fR To fJ + fR
+                                fSum = fSum + fCopy(fK)
+                                fCnt = fCnt + 1
+                            Next fK
+                            fNew = fSum / fCnt
+                            If fNew > fPrev Then fNew = fPrev
+                            If VarType(arrE(fJ, 1)) = vbDouble Then
+                                If Abs(arrE(fJ, 1) - fNew) > 0.000001 Then
+                                    If IsEmpty(arrS(fJ, 1)) Then arrS(fJ, 1) = arrE(fJ, 1)
+                                    arrE(fJ, 1) = fNew
+                                    changedCnt = changedCnt + 1
+                                End If
+                            End If
+                            fPrev = fNew
+                        Next fJ
+                    End If
                 End If
             End If
         End If
@@ -715,6 +732,8 @@ Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Bool
             For smI = 1 To nSm
                 If smArr(smI) >= dMax - 1# Then lastHot = csArr(ci) + smI - 1
             Next smI
+            lastHot = lastHot - 12
+            If lastHot < csArr(ci) Then lastHot = csArr(ci)
             For q = csArr(ci) To lastHot
                 If q >= 2 And q <= lastRow Then isHeat(q - 1) = True
             Next q
