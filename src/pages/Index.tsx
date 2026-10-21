@@ -331,7 +331,7 @@ Sub Autoclave_CorrectProductTemp()
     ReDim isHeat(1 To nR)
     Call MarkCoolingRows(wsData, lastRow, isCool, isHeat)
 
-    Dim i As Long
+    Dim i As Long, hJ As Long
     Dim changedCnt As Long : changedCnt = 0
     For i = 1 To nR
         If Not IsEmpty(arrS(i, 1)) Then
@@ -339,20 +339,41 @@ Sub Autoclave_CorrectProductTemp()
             arrS(i, 1) = Empty
         End If
     Next i
-    For i = 1 To nR
+    Dim rA As Long, rB As Long, rMaxD As Double, rMaxE As Double
+    i = 1
+    Do While i <= nR
         If isCool(i) Then
-            ' охлаждение не трогаем
-        ElseIf VarType(arrD(i, 1)) = vbDouble And VarType(arrE(i, 1)) = vbDouble Then
-            If arrE(i, 1) > arrD(i, 1) Then
-                If IsEmpty(arrS(i, 1)) Then arrS(i, 1) = arrE(i, 1)
-                arrE(i, 1) = arrD(i, 1)
-                changedCnt = changedCnt + 1
+            i = i + 1
+        Else
+            rA = i
+            rMaxD = -1E+30 : rMaxE = -1E+30
+            Do While i <= nR
+                If isCool(i) Then Exit Do
+                If VarType(arrD(i, 1)) = vbDouble Then
+                    If arrD(i, 1) > rMaxD Then rMaxD = arrD(i, 1)
+                End If
+                If VarType(arrE(i, 1)) = vbDouble Then
+                    If arrE(i, 1) > rMaxE Then rMaxE = arrE(i, 1)
+                End If
+                i = i + 1
+            Loop
+            rB = i - 1
+            If rMaxE > rMaxD Then
+                For hJ = rA To rB
+                    If VarType(arrD(hJ, 1)) = vbDouble And VarType(arrE(hJ, 1)) = vbDouble Then
+                        If arrE(hJ, 1) > arrD(hJ, 1) Then
+                            If IsEmpty(arrS(hJ, 1)) Then arrS(hJ, 1) = arrE(hJ, 1)
+                            arrE(hJ, 1) = arrD(hJ, 1)
+                            changedCnt = changedCnt + 1
+                        End If
+                    End If
+                Next hJ
             End If
         End If
-    Next i
+    Loop
 
     ' ----- Нагрев: убираем провалы/изгибы красной линии (T продукта при нагреве не должна падать) -----
-    Dim hA As Long, hB As Long, hPk As Long, hI As Long, hJ As Long, hM As Long
+    Dim hA As Long, hB As Long, hPk As Long, hI As Long, hM As Long
     Dim hMax As Double, hLo As Long, hHi As Long, hQ As Long, hC As Long
     Dim hSum As Double, hOk As Boolean
     Dim hOrig() As Double
@@ -520,76 +541,6 @@ Sub Autoclave_CorrectProductTemp()
 
     On Error GoTo 0
 
-    Dim fL As Double, fM As Long, fJ As Long, fK As Long, fLim As Long, fOk As Boolean
-    Dim fLo As Long, fHi As Long, fR As Long, fSum As Double, fCnt As Long, fPrev As Double, fNew As Double
-    Dim fCopy() As Double
-    For i = 12 To nR
-        If isCool(i) And Not isCool(i - 1) Then
-            fOk = True
-            fL = 1E+30
-            For fK = i - 10 To i - 1
-                If VarType(arrE(fK, 1)) <> vbDouble Then
-                    fOk = False
-                ElseIf arrE(fK, 1) < fL Then
-                    fL = arrE(fK, 1)
-                End If
-            Next fK
-            If fOk Then
-                fM = 0
-                fLim = i + 700
-                If fLim > nR Then fLim = nR
-                For fJ = i To fLim
-                    If Not isCool(fJ) Then Exit For
-                    If VarType(arrE(fJ, 1)) <> vbDouble Then Exit For
-                    If arrE(fJ, 1) <= fL Then
-                        fM = fJ
-                        Exit For
-                    End If
-                Next fJ
-                If fM > 0 Then
-                    For fJ = i To fM - 1
-                        If Abs(arrE(fJ, 1) - fL) > 0.000001 Then
-                            If IsEmpty(arrS(fJ, 1)) Then arrS(fJ, 1) = arrE(fJ, 1)
-                            arrE(fJ, 1) = fL
-                            changedCnt = changedCnt + 1
-                        End If
-                    Next fJ
-                    fLo = fM - 8
-                    If fLo < i Then fLo = i
-                    fHi = fM + 8
-                    If fHi > nR Then fHi = nR
-                    If fHi > fLo + 2 Then
-                        ReDim fCopy(fLo To fHi)
-                        For fJ = fLo To fHi
-                            If VarType(arrE(fJ, 1)) = vbDouble Then fCopy(fJ) = arrE(fJ, 1) Else fCopy(fJ) = fL
-                        Next fJ
-                        fPrev = fL
-                        For fJ = fLo To fHi
-                            fR = 4
-                            If fJ - fLo < fR Then fR = fJ - fLo
-                            If fHi - fJ < fR Then fR = fHi - fJ
-                            fSum = 0 : fCnt = 0
-                            For fK = fJ - fR To fJ + fR
-                                fSum = fSum + fCopy(fK)
-                                fCnt = fCnt + 1
-                            Next fK
-                            fNew = fSum / fCnt
-                            If fNew > fPrev Then fNew = fPrev
-                            If VarType(arrE(fJ, 1)) = vbDouble Then
-                                If Abs(arrE(fJ, 1) - fNew) > 0.000001 Then
-                                    If IsEmpty(arrS(fJ, 1)) Then arrS(fJ, 1) = arrE(fJ, 1)
-                                    arrE(fJ, 1) = fNew
-                                    changedCnt = changedCnt + 1
-                                End If
-                            End If
-                            fPrev = fNew
-                        Next fJ
-                    End If
-                End If
-            End If
-        End If
-    Next i
-
     If changedCnt = 0 Then
         Application.Calculation = xlCalculationAutomatic
         Application.ScreenUpdating = True
@@ -732,8 +683,6 @@ Sub MarkCoolingRows(wsData As Worksheet, lastRow As Long, ByRef isCool() As Bool
             For smI = 1 To nSm
                 If smArr(smI) >= dMax - 1# Then lastHot = csArr(ci) + smI - 1
             Next smI
-            lastHot = lastHot - 12
-            If lastHot < csArr(ci) Then lastHot = csArr(ci)
             For q = csArr(ci) To lastHot
                 If q >= 2 And q <= lastRow Then isHeat(q - 1) = True
             Next q
