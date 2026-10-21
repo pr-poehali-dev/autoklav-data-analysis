@@ -320,10 +320,19 @@ Sub Autoclave_CorrectProductTemp()
 
     ' ----- 1. Корректируем столбец E: T продукта не выше T среды (столбец D) -----
     Dim nR As Long : nR = lastRow - 1
-    Dim arrD As Variant, arrE As Variant, arrS As Variant
+    Dim arrD As Variant, arrE As Variant
+    Dim i As Long, hJ As Long
     arrD = wsData.Range(wsData.Cells(2, 4), wsData.Cells(lastRow, 4)).Value
     arrE = wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value
-    arrS = wsData.Range(wsData.Cells(2, 19), wsData.Cells(lastRow, 19)).Value
+    Dim arrS() As Variant
+    ReDim arrS(1 To nR, 1 To 1)
+    If CStr(wsData.Cells(1, 19).Value) = "T_ПРОДУКТА_ДО_КОРРЕКТИРОВКИ" Then
+        Dim sOld As Variant
+        sOld = wsData.Range(wsData.Cells(2, 19), wsData.Cells(lastRow, 19)).Value
+        For i = 1 To nR
+            If VarType(sOld(i, 1)) = vbDouble Then arrS(i, 1) = sOld(i, 1)
+        Next i
+    End If
 
     Dim isCool() As Boolean
     ReDim isCool(1 To nR)
@@ -331,7 +340,6 @@ Sub Autoclave_CorrectProductTemp()
     ReDim isHeat(1 To nR)
     Call MarkCoolingRows(wsData, lastRow, isCool, isHeat)
 
-    Dim i As Long, hJ As Long
     Dim changedCnt As Long : changedCnt = 0
     For i = 1 To nR
         If Not IsEmpty(arrS(i, 1)) Then
@@ -554,6 +562,11 @@ Sub Autoclave_CorrectProductTemp()
 
     On Error GoTo 0
 
+    wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value = arrE
+    If CStr(wsData.Cells(1, 19).Value) = "T_ПРОДУКТА_ДО_КОРРЕКТИРОВКИ" Then
+        wsData.Columns(19).Clear
+    End If
+
     If changedCnt = 0 Then
         Application.Calculation = xlCalculationAutomatic
         Application.ScreenUpdating = True
@@ -561,15 +574,6 @@ Sub Autoclave_CorrectProductTemp()
                vbInformation, "Корректировка"
         Exit Sub
     End If
-
-    wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value = arrE
-    wsData.Range(wsData.Cells(2, 19), wsData.Cells(lastRow, 19)).Value = arrS
-    wsData.Cells(1, 19).Value = "T_ПРОДУКТА_ДО_КОРРЕКТИРОВКИ"
-    wsData.Cells(1, 19).Font.Bold = True
-    wsData.Cells(1, 19).Interior.Color = wsData.Cells(1, 18).Interior.Color
-    wsData.Cells(1, 19).Font.Color = wsData.Cells(1, 18).Font.Color
-    wsData.Columns(19).NumberFormat = "0.00"
-    wsData.Columns(19).AutoFit
 
     ' ----- 2. Имя файла для заголовков и число строк предыдущих суток -----
     Dim fName As String
