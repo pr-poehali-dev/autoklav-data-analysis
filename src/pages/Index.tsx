@@ -339,7 +339,7 @@ Sub Autoclave_CorrectProductTemp()
             arrS(i, 1) = Empty
         End If
     Next i
-    Dim rA As Long, rB As Long, rMaxD As Double, rMaxE As Double
+    Dim rA As Long, rB As Long, rMaxD As Double, rMaxE As Double, rCap As Double
     i = 1
     Do While i <= nR
         If isCool(i) Then
@@ -368,6 +368,19 @@ Sub Autoclave_CorrectProductTemp()
                         End If
                     End If
                 Next hJ
+                If rB < nR Then
+                    If isCool(rB + 1) And VarType(arrE(rB, 1)) = vbDouble Then
+                        rCap = arrE(rB, 1)
+                        For hJ = rB + 1 To nR
+                            If Not isCool(hJ) Then Exit For
+                            If VarType(arrE(hJ, 1)) <> vbDouble Then Exit For
+                            If arrE(hJ, 1) <= rCap Then Exit For
+                            If IsEmpty(arrS(hJ, 1)) Then arrS(hJ, 1) = arrE(hJ, 1)
+                            arrE(hJ, 1) = rCap
+                            changedCnt = changedCnt + 1
+                        Next hJ
+                    End If
+                End If
             End If
         End If
     Loop
