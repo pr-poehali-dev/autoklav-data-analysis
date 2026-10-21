@@ -560,6 +560,51 @@ Sub Autoclave_CorrectProductTemp()
         End If
     Loop
 
+    Dim cRef As Double, cK As Long, cA As Long, cB As Long, cP As Long, cQ As Long, cR As Long
+    Dim cSum As Double, cN As Long
+    Dim cTmp() As Double
+    Const CORNER_W As Long = 30
+    Const CORNER_H As Long = 10
+    For i = 2 To nR
+        If isCool(i) And Not isCool(i - 1) Then
+            If VarType(arrE(i - 1, 1)) = vbDouble Then
+                cRef = arrE(i - 1, 1)
+                cK = 0
+                For hJ = i To nR
+                    If Not isCool(hJ) Then Exit For
+                    If VarType(arrE(hJ, 1)) <> vbDouble Then Exit For
+                    If arrE(hJ, 1) < cRef - 0.3 Then
+                        cK = hJ
+                        Exit For
+                    End If
+                Next hJ
+                If cK > 0 Then
+                    cA = cK - CORNER_W : If cA < 1 Then cA = 1
+                    cB = cK + CORNER_W : If cB > nR Then cB = nR
+                    ReDim cTmp(cA To cB)
+                    For cP = 1 To 3
+                        For cQ = cA To cB
+                            cSum = 0 : cN = 0
+                            For cR = cQ - CORNER_H To cQ + CORNER_H
+                                If cR >= 1 And cR <= nR Then
+                                    If VarType(arrE(cR, 1)) = vbDouble Then
+                                        cSum = cSum + arrE(cR, 1)
+                                        cN = cN + 1
+                                    End If
+                                End If
+                            Next cR
+                            If cN > 0 Then cTmp(cQ) = cSum / cN Else cTmp(cQ) = arrE(cQ, 1)
+                        Next cQ
+                        For cQ = cA To cB
+                            arrE(cQ, 1) = cTmp(cQ)
+                        Next cQ
+                    Next cP
+                    changedCnt = changedCnt + 1
+                End If
+            End If
+        End If
+    Next i
+
     On Error GoTo 0
 
     wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value = arrE
