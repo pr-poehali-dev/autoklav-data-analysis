@@ -3377,8 +3377,63 @@ const MOCK_CYCLES = [
 export default function Index() {
   const [copied, setCopied] = useState(false);
 
+  const buildExportCode = () => {
+    const enc = (t: string) =>
+      'RU("' + Array.from(t).map((c) => c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")).join("") + '")';
+    const lines = VBA_CODE.split("\n").map((line) => {
+      let out = "";
+      let i = 0;
+      while (i < line.length) {
+        const ch = line[i];
+        if (ch === "'") {
+          out += line.slice(i).replace(/[^\x00-\x7F]/g, "?");
+          break;
+        }
+        if (ch === '"') {
+          let j = i + 1;
+          let lit = "";
+          while (j < line.length) {
+            if (line[j] === '"' && line[j + 1] === '"') { lit += '""'; j += 2; continue; }
+            if (line[j] === '"') break;
+            lit += line[j];
+            j++;
+          }
+          if (/[^\x00-\x7F]/.test(lit)) {
+            const first = lit.search(/[^\x00-\x7F]/);
+            let last = lit.length - 1;
+            while (last >= 0 && lit.charCodeAt(last) < 128) last--;
+            const head = lit.slice(0, first);
+            const mid = lit.slice(first, last + 1);
+            const tail = lit.slice(last + 1);
+            const parts: string[] = [];
+            if (head) parts.push('"' + head + '"');
+            parts.push(enc(mid.replace(/""/g, '"')));
+            if (tail) parts.push('"' + tail + '"');
+            out += parts.join(" & ");
+          } else {
+            out += '"' + lit + '"';
+          }
+          i = j + 1;
+          continue;
+        }
+        out += ch;
+        i++;
+      }
+      return out;
+    });
+    return (
+      lines.join("\n") +
+      "\n\nFunction RU(h As String) As String\n" +
+      "    Dim k As Long\n" +
+      "    For k = 1 To Len(h) Step 4\n" +
+      "        RU = RU & ChrW(CLng(\"&H\" & Mid(h, k, 4)))\n" +
+      "    Next k\n" +
+      "End Function\n"
+    );
+  };
+
   const copyCode = () => {
-    navigator.clipboard.writeText(VBA_CODE);
+    navigator.clipboard.writeText(buildExportCode());
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -3404,10 +3459,11 @@ export default function Index() {
       0x00B0:0xB0,0x00B1:0xB1,0x00B2:0xB2,0x00B3:0xB3,0x00B5:0xB5,0x00B7:0xB7,
       0x00A0:0xA0,0x00A9:0xA9,0x00AE:0xAE,0x2116:0xB9,0x20AC:0x88,
     };
-    const bytes = new Uint8Array(VBA_CODE.length * 2);
+    const exportCode = buildExportCode();
+    const bytes = new Uint8Array(exportCode.length * 2);
     let idx = 0;
-    for (let i = 0; i < VBA_CODE.length; i++) {
-      const cp = VBA_CODE.charCodeAt(i);
+    for (let i = 0; i < exportCode.length; i++) {
+      const cp = exportCode.charCodeAt(i);
       if (cp < 0x80) {
         bytes[idx++] = cp;
       } else if (charMap[cp] !== undefined) {
