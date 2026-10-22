@@ -347,6 +347,7 @@ Sub Autoclave_CorrectProductTemp()
         If Not IsEmpty(arrS(i, 1)) Then
             arrE(i, 1) = arrS(i, 1)
             arrS(i, 1) = Empty
+            changedCnt = changedCnt + 1
         End If
     Next i
     Dim rA As Long, rB As Long, rMaxD As Double, rMaxE As Double, rCap As Double
