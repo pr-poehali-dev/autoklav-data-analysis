@@ -607,35 +607,29 @@ Sub Autoclave_CorrectProductTemp()
 
     On Error GoTo 0
 
-    Dim fA As Long, fEnd As Long, fK As Long, fMaxD As Double, fHasD As Boolean
-    i = 1
-    Do While i <= nR
-        fA = i
-        fMaxD = -1E+30 : fHasD = False
-        Do While i <= nR
-            If isCool(i) Then Exit Do
-            If IsNumeric(arrD(i, 1)) And Not IsEmpty(arrD(i, 1)) Then
-                If CDbl(arrD(i, 1)) > fMaxD Then fMaxD = CDbl(arrD(i, 1)) : fHasD = True
-            End If
-            i = i + 1
-        Loop
-        Do While i <= nR
-            If Not isCool(i) Then Exit Do
-            i = i + 1
-        Loop
-        fEnd = i - 1
-        If fHasD Then
-            For fK = fA To fEnd
-                If IsNumeric(arrE(fK, 1)) And Not IsEmpty(arrE(fK, 1)) Then
-                    If CDbl(arrE(fK, 1)) > fMaxD Then
-                        If IsEmpty(arrS(fK, 1)) Then arrS(fK, 1) = arrE(fK, 1)
-                        arrE(fK, 1) = fMaxD
-                        changedCnt = changedCnt + 1
-                    End If
+    Dim fK As Long, fCap As Double, fHasCap As Boolean
+    For fK = 1 To nR
+        If Not isCool(fK) Then
+            If IsNumeric(arrD(fK, 1)) And Not IsEmpty(arrD(fK, 1)) And IsNumeric(arrE(fK, 1)) And Not IsEmpty(arrE(fK, 1)) Then
+                If CDbl(arrE(fK, 1)) > CDbl(arrD(fK, 1)) Then
+                    If IsEmpty(arrS(fK, 1)) Then arrS(fK, 1) = arrE(fK, 1)
+                    arrE(fK, 1) = CDbl(arrD(fK, 1))
+                    changedCnt = changedCnt + 1
                 End If
-            Next fK
+            End If
+            If IsNumeric(arrE(fK, 1)) And Not IsEmpty(arrE(fK, 1)) Then
+                fCap = CDbl(arrE(fK, 1)) : fHasCap = True
+            End If
+        Else
+            If fHasCap And IsNumeric(arrE(fK, 1)) And Not IsEmpty(arrE(fK, 1)) Then
+                If CDbl(arrE(fK, 1)) > fCap Then
+                    If IsEmpty(arrS(fK, 1)) Then arrS(fK, 1) = arrE(fK, 1)
+                    arrE(fK, 1) = fCap
+                    changedCnt = changedCnt + 1
+                End If
+            End If
         End If
-    Loop
+    Next fK
 
     wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value = arrE
     If CStr(wsData.Cells(1, 19).Value) = "T_ПРОДУКТА_ДО_КОРРЕКТИРОВКИ" Then
