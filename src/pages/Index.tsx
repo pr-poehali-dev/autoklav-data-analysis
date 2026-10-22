@@ -294,15 +294,15 @@ Sub Autoclave_CorrectProductTemp()
         On Error GoTo 0
     End If
     If wbC Is Nothing Then
-        MsgBox "Не удалось открыть файл:" & Chr(13) & fp, vbExclamation, "Корректировка"
+        MsgBox "Не удалось открыть файл:" & Chr(13) & fp, vbExclamation, "Отчёт"
         Exit Sub
     End If
     If wbC.ReadOnly Then
-        MsgBox "Файл открыт только для чтения — корректировка невозможна.", vbExclamation, "Корректировка"
+        MsgBox "Файл открыт только для чтения — обновление отчёта невозможно.", vbExclamation, "Отчёт"
         Exit Sub
     End If
     If Not SheetExistsInWb(wbC, "Data") Then
-        MsgBox "В файле нет листа 'Data'.", vbExclamation, "Корректировка"
+        MsgBox "В файле нет листа 'Data'.", vbExclamation, "Отчёт"
         Exit Sub
     End If
 
@@ -311,7 +311,7 @@ Sub Autoclave_CorrectProductTemp()
     Dim lastRow As Long
     lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
     If lastRow < 3 Then
-        MsgBox "На листе 'Data' нет данных.", vbExclamation, "Корректировка"
+        MsgBox "На листе 'Data' нет данных.", vbExclamation, "Отчёт"
         Exit Sub
     End If
 
@@ -615,8 +615,7 @@ Sub Autoclave_CorrectProductTemp()
     If changedCnt = 0 Then
         Application.Calculation = xlCalculationAutomatic
         Application.ScreenUpdating = True
-        MsgBox "Корректировка не требуется: температура продукта нигде не превышает температуру среды.", _
-               vbInformation, "Корректировка"
+        MsgBox "Отчёт не требует обновления.", vbInformation, "Отчёт"
         Exit Sub
     End If
 
@@ -793,7 +792,7 @@ Function DetectPrevInsertedRows(wb As Workbook, wsData As Worksheet, nameParts()
         ansP = MsgBox("Файл объединяет два CSV:" & Chr(13) & nameParts(0) & Chr(13) & nameParts(1) & Chr(13) & Chr(13) & _
                       "Первый файл — это ПРЕДЫДУЩИЕ сутки (основной — второй)?" & Chr(13) & _
                       "Да — первый предыдущий." & Chr(13) & "Нет — первый основной, второй — следующие сутки.", _
-                      vbYesNo + vbQuestion, "Корректировка — уточнение")
+                      vbYesNo + vbQuestion, "Отчёт — уточнение")
         If ansP = vbYes Then mainIdx = 1 Else mainIdx = 0
     End If
     If mainIdx = 0 Then Exit Function
