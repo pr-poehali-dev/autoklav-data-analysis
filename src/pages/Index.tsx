@@ -605,6 +605,42 @@ Sub Autoclave_CorrectProductTemp()
         End If
     Next i
 
+    Dim fA As Long, fB As Long, fEnd As Long, fK As Long, fMaxD As Double
+    i = 1
+    Do While i <= nR
+        If isCool(i) Then
+            i = i + 1
+        Else
+            fA = i
+            fMaxD = -1E+30
+            Do While i <= nR
+                If isCool(i) Then Exit Do
+                If VarType(arrD(i, 1)) = vbDouble Then
+                    If arrD(i, 1) > fMaxD Then fMaxD = arrD(i, 1)
+                End If
+                i = i + 1
+            Loop
+            fB = i - 1
+            fEnd = fB
+            Do While fEnd < nR
+                If Not isCool(fEnd + 1) Then Exit Do
+                fEnd = fEnd + 1
+            Loop
+            If fMaxD > -1E+29 Then
+                For fK = fA To fEnd
+                    If VarType(arrE(fK, 1)) = vbDouble Then
+                        If arrE(fK, 1) > fMaxD Then
+                            If IsEmpty(arrS(fK, 1)) Then arrS(fK, 1) = arrE(fK, 1)
+                            arrE(fK, 1) = fMaxD
+                            changedCnt = changedCnt + 1
+                        End If
+                    End If
+                Next fK
+            End If
+            i = fEnd + 1
+        End If
+    Loop
+
     On Error GoTo 0
 
     wsData.Range(wsData.Cells(2, 5), wsData.Cells(lastRow, 5)).Value = arrE
