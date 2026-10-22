@@ -341,6 +341,8 @@ Sub Autoclave_CorrectProductTemp()
     Call MarkCoolingRows(wsData, lastRow, isCool, isHeat)
 
     Dim changedCnt As Long : changedCnt = 0
+    Dim doClip() As Boolean
+    ReDim doClip(1 To nR)
     For i = 1 To nR
         If Not IsEmpty(arrS(i, 1)) Then
             arrE(i, 1) = arrS(i, 1)
@@ -366,7 +368,27 @@ Sub Autoclave_CorrectProductTemp()
                 i = i + 1
             Loop
             rB = i - 1
+            hJ = rB + 1
+            Do While hJ <= nR
+                If Not isCool(hJ) Then Exit Do
+                If VarType(arrD(hJ, 1)) = vbDouble Then
+                    If arrD(hJ, 1) > rMaxD Then rMaxD = arrD(hJ, 1)
+                End If
+                If VarType(arrE(hJ, 1)) = vbDouble Then
+                    If arrE(hJ, 1) > rMaxE Then rMaxE = arrE(hJ, 1)
+                End If
+                hJ = hJ + 1
+            Loop
             If rMaxE > rMaxD Then
+                For hJ = rA To rB
+                    doClip(hJ) = True
+                Next hJ
+                hJ = rB + 1
+                Do While hJ <= nR
+                    If Not isCool(hJ) Then Exit Do
+                    doClip(hJ) = True
+                    hJ = hJ + 1
+                Loop
                 For hJ = rA To rB
                     If VarType(arrD(hJ, 1)) = vbDouble And VarType(arrE(hJ, 1)) = vbDouble Then
                         If arrE(hJ, 1) > arrD(hJ, 1) Then
@@ -403,7 +425,7 @@ Sub Autoclave_CorrectProductTemp()
     Const HEAT_SMOOTH As Long = 8
     hA = 1
     Do While hA <= nR
-        If Not isHeat(hA) Then
+        If Not isHeat(hA) Or Not doClip(hA) Then
             hA = hA + 1
         Else
             hB = hA
@@ -566,7 +588,7 @@ Sub Autoclave_CorrectProductTemp()
     Const CORNER_W As Long = 30
     Const CORNER_H As Long = 10
     For i = 2 To nR
-        If isCool(i) And Not isCool(i - 1) Then
+        If isCool(i) And Not isCool(i - 1) And doClip(i) Then
             If VarType(arrE(i - 1, 1)) = vbDouble Then
                 cRef = arrE(i - 1, 1)
                 cK = 0
@@ -609,7 +631,9 @@ Sub Autoclave_CorrectProductTemp()
 
     Dim fK As Long, fCap As Double, fHasCap As Boolean
     For fK = 1 To nR
-        If Not isCool(fK) Then
+        If Not doClip(fK) Then
+            fHasCap = False
+        ElseIf Not isCool(fK) Then
             If IsNumeric(arrD(fK, 1)) And Not IsEmpty(arrD(fK, 1)) And IsNumeric(arrE(fK, 1)) And Not IsEmpty(arrE(fK, 1)) Then
                 If CDbl(arrE(fK, 1)) > CDbl(arrD(fK, 1)) Then
                     If IsEmpty(arrS(fK, 1)) Then arrS(fK, 1) = arrE(fK, 1)
