@@ -668,10 +668,7 @@ Sub Autoclave_CorrectProductTemp()
     wbC.Sheets("График").Activate
     On Error GoTo 0
 
-    MsgBox "Корректировка выполнена." & Chr(13) & _
-           "Исправлено значений температуры продукта: " & changedCnt & Chr(13) & _
-           "F0, отчёт и графики пересчитаны." & saveNote, _
-           vbInformation, "Корректировка — Готово"
+    MsgBox "Отчёт готов." & saveNote, vbInformation, "Отчёт"
 End Sub
 
 '-------------------------------------------------------------
@@ -2963,7 +2960,7 @@ Sub BuildOneCycleChart(ws As Worksheet, wsData As Worksheet, _
                 .Font.Bold = False
                 .Font.Fill.ForeColor.RGB = RGB(20, 20, 20)
                 .Text = Format(envMaxVal, "0.0") & " °C" & Chr(10) & _
-                        Format(prodMaxVal, "0.0") & " °C" & Chr(10) & _
+                        Format(IIf(prodMaxVal > envMaxVal, envMaxVal, prodMaxVal), "0.0") & " °C" & Chr(10) & _
                         Format(pressMaxVal, "0") & " мБар" & Chr(10) & _
                         Format(f0MaxVal, "0.0") & " мин"
             End With
